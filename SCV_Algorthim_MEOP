@@ -1,0 +1,294 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Algorithm to Detect MEOP SCVs %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% QUALITY CONTROL THRESHOLDS
+qc.min_depth    = [300]; % minimum depth to be considered a 'good' profile
+qc.min_profiles = [50];   % minimum number of 'good' profiles for a timeseries
+qc.max_time_gap = [5];   % max gap (days) between 'good' profiles before rejection
+
+dbar_grid = 1:500;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DATA LOADING AND MANIPULATION
+
+meop_data = interp_meop_data;
+
+%%% Grab MEOP meta data (tag num, date) and group them into time-series
+for i = 1:length(meop_data)
+    tagnum(i)   = meop_data(i).tag; % tag num
+    profdate(i) = datenum(meop_data(i).time); % date
+end
+
+%%% Get unique tag numbers
+taglist = unique(tagnum);
+
+%%% Go through each tagnum and assign a cast number
+meop_ts = [];
+for i = 1:length(taglist)
+	%%% Find profiles with that tagnum
+	tagidx = find(tagnum == taglist(i));
+
+	%%% Start meop time-series
+	meop_ts(i).tag = taglist(i);
+
+	%%% Sort the profiles by date
+	[a,b] = sort(profdate(tagidx),'ascend');
+
+	%%% Go through all instances of the same tag and fill in the data
+	for j = 1:length(b)
+		meop_ts(i).cast(j)   = j;						  % cast number
+		meop_ts(i).lat(j)    = meop_data(tagidx(j)).lat;  % latitude
+		meop_ts(i).lon(j)    = meop_data(tagidx(j)).lon;  % longitude
+		meop_ts(i).time(j,:) = meop_data(tagidx(j)).time; % cast date
+		meop_ts(i).salt(:,j) = meop_data(tagidx(j)).salt; % salinity
+		meop_ts(i).temp(:,j) = meop_data(tagidx(j)).temp; % temperature
+	end	
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% FIRST QC FLAG (max depth) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Flag all casts that don't go deep enough
+flagit = [];
+for i = 1:length(meop_ts)
+	for j = 1:length(meop_ts(i).cast)
+		tmpdat = [meop_ts(i).temp(:,j) + meop_ts(i).salt(:,j)];
+		ind = find(isnan(tmpdat)==0);
+		if dbar_grid(ind(end)) < qc.min_depth
+			flagit = [flagit; i j];
+		end
+	end
+end
+
+%%% Remove
+for i = size(flagit,1):-1:1 % (NOTE: Flipped direction of deletion (issue with deleting correct profile)
+	meop_ts(flagit(i,1)).cast(flagit(i,2))   = [];
+	meop_ts(flagit(i,1)).lat(flagit(i,2))    = [];
+	meop_ts(flagit(i,1)).lon(flagit(i,2))    = [];
+	meop_ts(flagit(i,1)).time(flagit(i,2),:) = [];
+	meop_ts(flagit(i,1)).salt(:,flagit(i,2)) = [];
+	meop_ts(flagit(i,1)).temp(:,flagit(i,2)) = [];
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% SECOND QC FLAG (time gap) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Find where gap between casts is too large
+%%% Set up a tag modifier to separate one T-S into many
+tslist  = {'A','B','C','D','E','F','G','H',...
+		   'I','J','K','L','M','N','O','P'};
+
+%%% Set up a total time-series counter
+tscount = 1;
+for i = 1:length(meop_ts)
+	ts_dates = datenum(meop_ts(i).time);
+	datediff = diff(ts_dates); 
+	ind      = find(datediff > qc.max_time_gap);
+	tmpidx   = [];
+	if isempty(ind)
+		tmpidx{1} = 1:length(meop_ts(i).cast);
+	elseif length(ind) == 1
+		tmpidx{1} = 1:ind;
+		tmpidx{2} = ind+1:length(meop_ts(i).cast);
+	else
+		for j = 1:length(ind)	
+			if j == 1
+				tmpidx{j} = 1:ind(j);
+			elseif j == length(ind)
+				tmpidx{j} = ind(j-1)+1:length(meop_ts(i).cast);
+			else
+				tmpidx{j} = ind(j-1)+1:ind(j);
+			end
+		end
+	end	
+	for j = 1:length(tmpidx)
+		qc_ts(tscount).tag  = [num2str(meop_ts(i).tag),tslist{j}];
+		%%% Save as QC'd timeseries
+		qc_ts(tscount).cast = meop_ts(i).cast(tmpidx{j});
+		qc_ts(tscount).lat  = meop_ts(i).lat(tmpidx{j});
+		qc_ts(tscount).lon  = meop_ts(i).lon(tmpidx{j});
+		qc_ts(tscount).time = meop_ts(i).time(tmpidx{j},:);
+		qc_ts(tscount).temp = meop_ts(i).temp(:,tmpidx{j});
+		qc_ts(tscount).salt = meop_ts(i).salt(:,tmpidx{j});
+		%%% Increase counter
+		tscount = tscount + 1;
+	end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% THIRD QC FLAG (min profiles) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Find timeseries without enough profiles
+Np = [];
+for i = 1:length(qc_ts)
+	Np(i) = length(qc_ts(i).cast);
+end
+ind = find(Np < qc.min_profiles);
+qc_ts(ind) = [];
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DETECTION ALGORTHIM
+
+for tag_no = 70
+    
+    day_average = 1; % half-range for two-day running mean
+    ID = raw_tag_final(tag_no); % MEOP Tag ID
+    
+    %%% creating time matrix for seal profiles (year, month, day, hour, minute, and second separated in different columns)
+    ts_time = [];
+    for i = 1:length(interp_meop_data(tag_elements_final{1, tag_no}))
+        ts_time(i,:) = interp_meop_data(tag_elements_final{1, tag_no}(i)).time;
+    end
+    
+    %%% converting seal profile times into serial date numbers (used as x-axis of
+    %%% time series)
+    ts_dates = [];
+    for i = 1:length(tag_elements_final{1, tag_no})
+        ts_dates(i) = datenum([ts_time(i,1),ts_time(i,2),ts_time(i,3),ts_time(i,4),ts_time(i,5),ts_time(i,6)]);
+    end
+    
+    %%% creating matrices to hold the time series salinity, temperature, and density data
+    %%% Note: dates must be unique for the time series
+    u = 1;
+    ts_salt = [];
+    ts_temp = [];
+    ts_density = [];
+    for i = unique(ts_dates)
+        l = find(ts_dates == i, 1);
+        ts_salt(:,u) = interp_meop_data(tag_elements_final{1, tag_no}(l)).salt;
+        ts_temp(:,u) = interp_meop_data(tag_elements_final{1, tag_no}(l)).temp;
+        ts_density(:,u) = gsw_rho(ts_salt(:,u), ts_temp(:,u), zeros(1, length(ts_salt(:,u))));
+        ts_lat(:,u) = interp_meop_data(tag_elements_final{1, tag_no}(l)).lat;
+        
+        %%% calculating number of NaNs present 
+        nan_length(u) = sum(isnan(ts_salt(:,u)));
+        
+        u = u + 1;
+    end
+    
+    %%% calculating average amount of NaNs in each vertical profile
+    nan_total = mean(nan_length, 'omitnan');
+    
+    %%% Skipping seal if there are too many NaNs (i.e. not enough data)
+    if nan_total > 200
+        continue
+    end
+
+    %%% Computing distance between isopycnals for two-day running mean
+    isopycnal_dist_y_axis = [];
+    isopycnal_dist = [];
+
+    isopycnal_dist_y_axis = linspace(1027.3, max(max(ts_density)), 50);
+    separation = isopycnal_dist_y_axis(2) - isopycnal_dist_y_axis(1);
+    
+    for i = 1:length(unique(ts_dates))
+        u = 1;
+        for j = isopycnal_dist_y_axis
+            isopycnal_dist(u,i) = length(find(ts_density(:,i) <= j & ts_density(:,i) >= (j - 0.1)));
+            u = u + 1;
+        end
+    end
+    
+    %%% Normalize isopycnal separation data by the mean
+    mean_isopycnal_dist = mean(isopycnal_dist, 2, 'omitnan');
+    isopycnal_dist = isopycnal_dist ./mean(mean(isopycnal_dist));
+    
+    isopycnal_dist(isopycnal_dist == 0) = NaN;
+    
+    %%% Computing stratification and potential vorticity
+    ts_strat = [];
+    ts_pv = [];
+    ts_strat = 1 ./ isopycnal_dist;
+    for i = 1:length(unique(ts_dates))
+        ts_pv(:,i) = -gsw_f(ts_lat(i)) * ts_strat(:,i);
+    end
+    
+    
+    %%% Creating time series
+    figure('Renderer', 'painters', 'Position', [100 100 1300 500]);
+    p = pcolor(unique(ts_dates), isopycnal_dist_y_axis, isopycnal_dist);  
+    set(p, 'EdgeColor', 'none')
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top')
+    cmap = cmocean('thermal');
+    colormap(cmap);
+    colorbar;
+    xticks(linspace(ts_dates(1), ts_dates(end), (ts_dates(end) - ts_dates(1)) / 5))
+    datetick('x', 'mm/dd', 'keepticks');
+    title('Isopycnal Separation')
+    xlabel('Date (mm/dd)');
+    
+    %%% Computing outliers
+    outliers = double(isoutlier(isopycnal_dist, 'movmean', 100, 2));
+    
+    %%% Removing insignificant outliers (not large in size)
+    false_outliers = find(sum(outliers, 1) < 10);
+    outliers(:, false_outliers) = 0;
+    
+    %%% Removing outliers in the beginning and end of the time series
+    beg_end_interval = 20;
+    outliers(:,[1:beg_end_interval (length(outliers) - beg_end_interval):length(outliers)]) = 0;
+    
+    %%% Creating time series of outliers
+    figure('Renderer', 'painters', 'Position', [100 100 1300 500])
+    p = pcolor(unique(ts_dates), isopycnal_dist_y_axis, outliers);
+    set(p, 'EdgeColor', 'none')
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top')
+    cmap = cmocean('thermal');
+    colormap(cmap);
+    colorbar;
+    xticks(linspace(ts_dates(1), ts_dates(end), (ts_dates(end) - ts_dates(1)) / 5))
+    datetick('x', 'mm/dd', 'keepticks');
+    xlabel('Date (mm/dd)');
+    title('Outliers')
+    
+    %%% Getting time series indicies of outliers
+    outlier_indicies = find(sum(outliers,1) > 0);
+    outlier_dist = pdist2(outlier_indicies', outlier_indicies');
+    
+    closeDistances = double(outlier_dist < 10);
+    no_groups = sum(closeDistances, 1);
+    
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Initial PV Attempt %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%     ts_strat = [];
+%     ts_pv = [];
+%     %%% calculating PV
+%     for i = 1:length(unique(ts_dates))
+%         ts_strat(:,i) = diff(ts_density(:,i),1);
+%         ts_pv(:,i) = -gsw_f(ts_lat(i)) * ts_strat(:,i);
+%     end
+%
+%     figure();
+%     hold on
+%     p = pcolor(unique(ts_dates), 1:499, ts_pv);  
+%     set(p, 'EdgeColor', 'none')
+%     set(gca, 'YDir','reverse');
+%     set(gca, 'Layer','top')
+%     colorbar;
+%     
+%     [C,h] = contour(unique(ts_dates), 1:500, ts_density, [1027.1, 1027.2, 1027.3, 1027.4, 1027.5, 1027.6, 1027.7, 1027.8, 1027.9], 'EdgeColor', 'k');
+%     clabel(C,h,'LabelSpacing',500);
+%     
+%     contours_data = getContourLineCoordinates(h);
+%     idy = h.LevelList;
+%     idx = find(contours_data.Level == h.LevelList(6));
+%     levels = table2array(contours_data(idx,3:4));
+%     specific_density_level = sortrows(levels, 1);
+%     
+%     for i = 1:length(level_1)
+%         level_1(i,3) = ts_density(find(specific_density_levels(5,1) == unique(ts_dates)), level_1(i,2));
+%     
+%     plot(level_1(:,1), level_1(:,2))
+%     
+%     hold off
+
+end
