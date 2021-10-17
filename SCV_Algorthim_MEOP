@@ -171,100 +171,82 @@ for tag_no = 48
     %%% Stratification calculation
     [ts_Nsquared,~] = gsw_Nsquared(ts_salt_absolute, ts_temp_conservative, depth_grid' .* ones(size(qc_ts(tag_no).salt)), qc_ts(tag_no).lat .* ones(size(qc_ts(tag_no).salt)));
     
+    %%% PV calculation
+    ts_dp_dz = diff(ts_density, 1);
+    ts_pv = -gsw_f(qc_ts(tag_no).lat) .* ts_dp_dz;
+    
+    %%% Dynamic Height Anomaly calculation
+    ts_dha = gsw_geo_strf_dyn_height(ts_salt_absolute, ts_temp_conservative, depth_grid', 10);
+    
     %%% Identifying outliers (using a moving mean across 12 days)
     ts_dates_tda = {};
     j = 1;
     for i = ts_time'
-        ts_dates_tda(1,j) = {find(ts_time < i-1 & ts_time > i-6)};
-        ts_dates_tda(2,j) = {find(ts_time > i+1 & ts_time < i+6)};
+        ts_dates_tda(1,j) = {find(ts_time < i-1 & ts_time > i-7)};
+        ts_dates_tda(2,j) = {find(ts_time > i+1 & ts_time < i+7)};
         j = j + 1;
     end
     
     %%% Identifying spice outliers
-    outliers_spice = [];
-    for i = 1:size(ts_spice, 1)
-        for j = 1:size(ts_spice, 2)
-            movMat_before = ts_spice(i, ts_dates_tda{1,j});
-            
-            movMat_after = ts_spice(i, ts_dates_tda{2,j});
-            
-            outliers_movMat_tda = isoutlier([movMat_before ts_spice(i,j) movMat_after]);
-            
-            outliers_spice(i,j) = outliers_movMat_tda(length(movMat_before) + 1);
-        end
-    end
+    outliers_spice = outlier_detection_date_version(ts_spice, ts_dates_tda);
     
     %%% Identifying N-squared outliers
-    outliers_Nsquared = [];
-    for i = 1:size(ts_Nsquared, 1)
-        for j = 1:size(ts_Nsquared, 2)
-            movMat_before = ts_Nsquared(i, ts_dates_tda{1,j});
-            
-            movMat_after = ts_Nsquared(i, ts_dates_tda{2,j});
-            
-            outliers_movMat_tda = isoutlier([movMat_before ts_Nsquared(i,j) movMat_after]);
-            
-            outliers_Nsquared(i,j) = outliers_movMat_tda(length(movMat_before) + 1);
-        end
-    end
+    outliers_Nsquared = outlier_detection_date_version(ts_Nsquared, ts_dates_tda);
     
-    %%% Spice subplot
-    ax1 = subplot(5,1,1);
-    p = pcolor(ts_time, 1:size(ts_spice,1), ts_spice);
-    set(p, 'EdgeColor', 'none');
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
+    %%% Identifying PV outliers
+    outliers_pv = outlier_detection_date_version(ts_pv, ts_dates_tda);
+    
+    %%% Identifying dynamic height anomaly outliers
+    outliers_dha = outlier_detection_date_version(ts_dha, ts_dates_tda);
+    
+    figure('Renderer', 'painters', 'Position', [10 10 1000 1000])
+    %%% PV subplot
+    ax1 = subplot(7,1,1);
+    pcolor_plots(ts_time, ts_dha);
     cmap = cmocean('thermal');
     colormap(ax1, cmap);
     colorbar;
-    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-    xlim([ts_time(1) ts_time(end)]);
-    datetick('x', 'mm/dd', 'keepticks');
-    title('Spice')
+    title('Dynamic Height Anomaly');
     
-    %%% Spice outliers subplot
-    ax2 = subplot(5,1,2);
-    p = pcolor(ts_time, 1:size(ts_spice,1), outliers_spice);
-    set(p, 'EdgeColor', 'none');
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
+    %%% PV outliers subplot
+    ax2 = subplot(7,1,2);
+    pcolor_plots(ts_time, outliers_dha);
     cmap = cmocean('thermal');
     colormap(ax2, cmap);
     caxis([0 1]);
     colorbar;
-    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-    xlim([ts_time(1) ts_time(end)]);
-    datetick('x', 'mm/dd', 'keepticks');
-    title('Spice Outliers')
+    title('Dynamic Height Anomaly Outliers');
     
-    %%% N-squared subplot
-    ax3 = subplot(5,1,3);
-    p = pcolor(ts_time, 1:size(ts_Nsquared,1), ts_Nsquared);
-    set(p, 'EdgeColor', 'none');
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
+    %%% Spice subplot
+    ax3 = subplot(7,1,3);
+    pcolor_plots(ts_time, ts_spice);
     cmap = cmocean('thermal');
     colormap(ax3, cmap);
     colorbar;
-    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-    xlim([ts_time(1) ts_time(end)]);
-    datetick('x', 'mm/dd', 'keepticks');
-    title('N^2')
+    title('Spice');
+    
+    %%% Spice outliers subplot
+    ax4 = subplot(7,1,4);
+    pcolor_plots(ts_time, outliers_spice);
+    colormap(ax4, cmap);
+    caxis([0 1]);
+    colorbar;
+    title('Spice Outliers');
+    
+    %%% N-squared subplot
+    ax5 = subplot(7,1,5);
+    pcolor_plots(ts_time, ts_Nsquared);
+    colormap(ax5, cmap);
+    colorbar;
+    title('N^2');
     
     %%% N-squared outliers subplot
-    ax4 = subplot(5,1,4);
-    p = pcolor(ts_time, 1:size(ts_Nsquared,1), outliers_Nsquared);
-    set(p, 'EdgeColor', 'none');
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
-    cmap = cmocean('thermal');
-    colormap(ax4, cmap);
+    ax6 = subplot(7,1,6);
+    pcolor_plots(ts_time, outliers_Nsquared);
+    colormap(ax6, cmap);
     colorbar;
     caxis([0 1]);
-    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-    xlim([ts_time(1) ts_time(end)]);
-    datetick('x', 'mm/dd', 'keepticks');
-    title('N^2 Outliers')
+    title('N^2 Outliers');
     
     %%% Finding intersection between outlier subplots
     outliers_both = [];
@@ -282,36 +264,18 @@ for tag_no = 48
         end
     end
     
-    %%% Summing outliers in a small matrix around each index
-    sum_outliers = [];
-    for i = 1:size(outliers_both, 1)
-        for j = 1:size(outliers_both, 2)
-            sum_outliers(i,j) = sum(outliers_both(max(i-4,1):min(i+4,size(outliers_both, 1)),max(j-2,1):min(j+2,size(outliers_both,2))), 'all');
-        end
-    end
-    
-    %%% Removing insignificant outliers
-    outliers_both(sum_outliers < 12) = 0;
-    
     %%% Outlier intersection subplot
-    ax5 = subplot(5,1,5);
-    p = pcolor(ts_time, 1:size(ts_Nsquared,1), outliers_both);
-    set(p, 'EdgeColor', 'none');
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
+    ax7 = subplot(7,1,7);
+    pcolor_plots(ts_time, outliers_both);
     cmap = cmocean('thermal');
-    colormap(ax5, cmap);
+    colormap(ax7, cmap);
     colorbar;
     caxis([0 1]);
-    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-    xlim([ts_time(1) ts_time(end)]);
+    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5));
     datetick('x', 'mm/dd', 'keepticks');
     title('Intersection of Spice and N^2 Outliers')
-                    
-
 
     %%% Creating y-axis isopycnal separation calculation
-    %isopycnal_dist_y_axis = linspace(1027.3, max(max(ts_density)), 50);
     isopycnal_dist_y_axis = 1027.3:0.01:max(max(ts_density));
 
     %%% Calculating isopycnal separation
@@ -327,134 +291,82 @@ for tag_no = 48
     %%% Setting 0 isopycnal separation values to NaN
     isopycnal_dist(isopycnal_dist == 0) = NaN;
     
-    %%% Identifying outliers (using a moving mean)
-    outliers = [];
-    for i = 1:size(isopycnal_dist, 1)
-        for j = 1:size(isopycnal_dist, 2)
-            
-            %%% Indices for outlier detection
-            movMat_before = isopycnal_dist(i, max(j-40, 1):max(j-10,1));
-                
-            movMat_after = isopycnal_dist(i, min(j+10, size(isopycnal_dist, 2)):min(j+40, ...
-                size(isopycnal_dist, 2)));
-            
-            %%% Outlier detection
-            outliers_movMat = isoutlier([movMat_before isopycnal_dist(i,j) movMat_after]);
-            
-            outliers(i,j) = outliers_movMat(length(movMat_before) + 1);
-        end
-    end
-    
-    %%% Identifying outliers (using a moving mean across 12 days)
-    ts_dates_tda = {};
-    j = 1;
-    for i = ts_time'
-        ts_dates_tda(1,j) = {find(ts_time < i-1 & ts_time > i-6)};
-        ts_dates_tda(2,j) = {find(ts_time > i+1 & ts_time < i+6)};
-        j = j + 1;
-    end
-    
-    outliers_tda = [];
-    for i = 1:size(isopycnal_dist, 1)
-        for j = 1:size(isopycnal_dist, 2)
-            movMat_before = isopycnal_dist(i, ts_dates_tda{1,j});
-            
-            movMat_after = isopycnal_dist(i, ts_dates_tda{2,j});
-            
-            outliers_movMat_tda = isoutlier([movMat_before isopycnal_dist(i,j) movMat_after]);
-            
-            outliers_tda(i,j) = outliers_movMat_tda(length(movMat_before) + 1);
-        end
-    end
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%% Removing Insignificant Outliers %%%
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    
-    %%% Summing outliers in a small matrix around each index
-    sum_outliers = [];
-    for i = 1:size(outliers, 1)
-        for j = 1:size(outliers, 2)
-            sum_outliers(i,j) = sum(outliers(max(i-4,1):min(i+4,size(outliers, 1)),max(j-2,1):min(j+2,size(outliers,2))), 'all');
-        end
-    end
-    
-    %%% Removing insignificant outliers
-    outliers(sum_outliers < 22.5) = 0;
-    
-    %%% Removing outliers in the beginning and end of the time series
-    beg_end_interval = 10;
-    outliers(:,[1:beg_end_interval (length(outliers) - beg_end_interval):length(outliers)]) = 0;
-    
-    %%%%%% PART 2
-    
-    %%% Summing outliers in a small matrix around each index
-    sum_outliers = [];
-    for i = 1:size(outliers_tda, 1)
-        for j = 1:size(outliers_tda, 2)
-            sum_outliers(i,j) = sum(outliers_tda(max(i-4,1):min(i+4,size(outliers_tda, 1)),max(j-2,1):min(j+2,size(outliers_tda,2))), 'all');
-        end
-    end
-    
-    %%% Removing insignificant outliers
-    outliers_tda(sum_outliers < 22.5) = 0;
-    
-    %%% Removing outliers in the beginning and end of the time series
-    beg_end_interval = 10;
-    outliers_tda(:,[1:beg_end_interval (length(outliers_tda) - beg_end_interval):length(outliers_tda)]) = 0;
-   
-%     %%%%%%%%%%%%%%%%%%%%%%%
-%     %%% Figure Creation %%%
-%     %%%%%%%%%%%%%%%%%%%%%%%
-%     fig = figure('Renderer', 'painters', 'Position', [100 100 1300 1000]);
-%     sgtitle('MEOP Tag: ' + string(qc_ts(tag_no).tag) + ' - Profile Method', 'FontSize', 18, 'FontWeight', 'bold')
+%     %%% Identifying outliers (using a moving mean)
+%     outliers = [];
+%     for i = 1:size(isopycnal_dist, 1)
+%         for j = 1:size(isopycnal_dist, 2)
+%             
+%             %%% Indices for outlier detection
+%             movMat_before = isopycnal_dist(i, max(j-40, 1):max(j-10,1));
+%                 
+%             movMat_after = isopycnal_dist(i, min(j+10, size(isopycnal_dist, 2)):min(j+40, ...
+%                 size(isopycnal_dist, 2)));
+%             
+%             %%% Outlier detection
+%             outliers_movMat = isoutlier([movMat_before isopycnal_dist(i,j) movMat_after]);
+%             
+%             outliers(i,j) = outliers_movMat(length(movMat_before) + 1);
+%         end
+%     end
 %     
-%     %%% Salinity subplot
-%     ax1 = subplot(4,1,1);
-%     time_series_gen(ts_time, depth_grid,'pressure', qc_ts(tag_no).salt, 'salinity', ax1, 'meop')
-%     contours(ts_time, depth_grid, 'density', qc_ts(tag_no).salt, qc_ts(tag_no).temp)
-%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-%     xlim([ts_time(1) ts_time(end)]);
-%     datetick('x', 'mm/dd', 'keepticks');
+%     %%% Identifying outliers (using a moving mean across 12 days)
+%     ts_dates_tda = {};
+%     j = 1;
+%     for i = ts_time'
+%         ts_dates_tda(1,j) = {find(ts_time < i-1 & ts_time > i-6)};
+%         ts_dates_tda(2,j) = {find(ts_time > i+1 & ts_time < i+6)};
+%         j = j + 1;
+%     end
 %     
-%     %%% Temperature subplot
-%     ax2 = subplot(4,1,2);
-%     time_series_gen(ts_time, depth_grid,'pressure', qc_ts(tag_no).temp, 'temperature', ax2, 'meop')
-%     contours(ts_time, depth_grid, 'density', qc_ts(tag_no).salt, qc_ts(tag_no).temp)
-%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-%     xlim([ts_time(1) ts_time(end)]);
-%     datetick('x', 'mm/dd', 'keepticks');
+%     outliers_tda = [];
+%     for i = 1:size(isopycnal_dist, 1)
+%         for j = 1:size(isopycnal_dist, 2)
+%             movMat_before = isopycnal_dist(i, ts_dates_tda{1,j});
+%             
+%             movMat_after = isopycnal_dist(i, ts_dates_tda{2,j});
+%             
+%             outliers_movMat_tda = isoutlier([movMat_before isopycnal_dist(i,j) movMat_after]);
+%             
+%             outliers_tda(i,j) = outliers_movMat_tda(length(movMat_before) + 1);
+%         end
+%     end
+% 
+%     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%     %%% Removing Insignificant Outliers %%%
+%     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %     
-%     %%% Isopycnal Separation subplot
-%     ax3 = subplot(4,1,3);
-%     p = pcolor(ax3, ts_time, isopycnal_dist_y_axis, isopycnal_dist);  
-%     set(p, 'EdgeColor', 'none');
-%     set(gca, 'YDir','reverse');
-%     set(gca, 'Layer','top');
-%     cmap = cmocean('thermal');
-%     colormap(ax3, cmap);
-%     colorbar;
-%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-%     datetick('x', 'mm/dd', 'keepticks');
-%     title('Isopycnal Separation')
+%     %%% Summing outliers in a small matrix around each index
+%     sum_outliers = [];
+%     for i = 1:size(outliers, 1)
+%         for j = 1:size(outliers, 2)
+%             sum_outliers(i,j) = sum(outliers(max(i-4,1):min(i+4,size(outliers, 1)),max(j-2,1):min(j+2,size(outliers,2))), 'all');
+%         end
+%     end
 %     
-%     %%% Outliers subplot
-%     ax4 = subplot(4,1,4);
-%     p = pcolor(ax4, ts_time, isopycnal_dist_y_axis, outliers);
-%     set(p, 'EdgeColor', 'none');
-%     set(gca, 'YDir','reverse');
-%     set(gca, 'Layer','top');
-%     cmap = cmocean('thermal');
-%     colormap(ax4, cmap);
-%     caxis([0 1]);
-%     colorbar;
-%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
-%     xlim([ts_time(1) ts_time(end)]);
-%     datetick('x', 'mm/dd', 'keepticks');
-%     title('Outliers')
-    
-%    saveas(fig, '/Users/jenkosty/Downloads/detectSCV-main/MEOP Time Series/Outliers_Profile_Method/MEOP TS ' + string(qc_ts(tag_no).tag), 'png')
-    
+%     %%% Removing insignificant outliers
+%     outliers(sum_outliers < 22.5) = 0;
+%     
+%     %%% Removing outliers in the beginning and end of the time series
+%     beg_end_interval = 10;
+%     outliers(:,[1:beg_end_interval (length(outliers) - beg_end_interval):length(outliers)]) = 0;
+%     
+%     %%%%%% PART 2
+%     
+%     %%% Summing outliers in a small matrix around each index
+%     sum_outliers = [];
+%     for i = 1:size(outliers_tda, 1)
+%         for j = 1:size(outliers_tda, 2)
+%             sum_outliers(i,j) = sum(outliers_tda(max(i-4,1):min(i+4,size(outliers_tda, 1)),max(j-2,1):min(j+2,size(outliers_tda,2))), 'all');
+%         end
+%     end
+%     
+%     %%% Removing insignificant outliers
+%     outliers_tda(sum_outliers < 22.5) = 0;
+%     
+%     %%% Removing outliers in the beginning and end of the time series
+%     beg_end_interval = 10;
+%     outliers_tda(:,[1:beg_end_interval (length(outliers_tda) - beg_end_interval):length(outliers_tda)]) = 0;
+%    
 %     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %     %%% Figure Creation (PART 2) %%%
 %     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -508,161 +420,31 @@ for tag_no = 48
 %     saveas(fig, '/Users/jenkosty/Downloads/detectSCV-main/MEOP Time Series/Outliers_Date_Method/MEOP TS ' + string(qc_ts(tag_no).tag), 'png')
 end
 
-% %%% OLD METHOD
-% for tag_no = 70
-%     
-%     day_average = 1; % half-range for two-day running mean
-%     ID = raw_tag_final(tag_no); % MEOP Tag ID
-%     
-%     %%% creating time matrix for seal profiles (year, month, day, hour, minute, and second separated in different columns)
-%     ts_time = [];
-%     for i = 1:length(interp_meop_data(tag_elements_final{1, tag_no}))
-%         ts_time(i,:) = interp_meop_data(tag_elements_final{1, tag_no}(i)).time;
-%     end
-%     
-%     %%% converting seal profile times into serial date numbers (used as x-axis of
-%     %%% time series)
-%     ts_dates = [];
-%     for i = 1:length(tag_elements_final{1, tag_no})
-%         ts_dates(i) = datenum([ts_time(i,1),ts_time(i,2),ts_time(i,3),ts_time(i,4),ts_time(i,5),ts_time(i,6)]);
-%     end
-%     
-%     %%% creating matrices to hold the time series salinity, temperature, and density data
-%     %%% Note: dates must be unique for the time series
-%     u = 1;
-%     ts_salt = [];
-%     ts_temp = [];
-%     ts_density = [];
-%     for i = unique(ts_dates)
-%         l = find(ts_dates == i, 1);
-%         ts_salt(:,u) = interp_meop_data(tag_elements_final{1, tag_no}(l)).salt;
-%         ts_temp(:,u) = interp_meop_data(tag_elements_final{1, tag_no}(l)).temp;
-%         ts_density(:,u) = gsw_rho(ts_salt(:,u), ts_temp(:,u), zeros(1, length(ts_salt(:,u))));
-%         ts_lat(:,u) = interp_meop_data(tag_elements_final{1, tag_no}(l)).lat;
-%         
-%         %%% calculating number of NaNs present 
-%         nan_length(u) = sum(isnan(ts_salt(:,u)));
-%         
-%         u = u + 1;
-%     end
-%     
-%     %%% calculating average amount of NaNs in each vertical profile
-%     nan_total = mean(nan_length, 'omitnan');
-%     
-%     %%% Skipping seal if there are too many NaNs (i.e. not enough data)
-%     if nan_total > 200
-%         continue
-%     end
-% 
-%     %%% Computing distance between isopycnals for two-day running mean
-%     isopycnal_dist_y_axis = [];
-%     isopycnal_dist = [];
-% 
-%     isopycnal_dist_y_axis = linspace(1027.3, max(max(ts_density)), 50);
-%     separation = isopycnal_dist_y_axis(2) - isopycnal_dist_y_axis(1);
-%     
-%     for i = 1:length(unique(ts_dates))
-%         u = 1;
-%         for j = isopycnal_dist_y_axis
-%             isopycnal_dist(u,i) = length(find(ts_density(:,i) <= j & ts_density(:,i) >= (j - 0.1)));
-%             u = u + 1;
-%         end
-%     end
-%     
-%     %%% Normalize isopycnal separation data by the mean
-%     mean_isopycnal_dist = mean(isopycnal_dist, 2, 'omitnan');
-%     isopycnal_dist = isopycnal_dist ./mean(mean(isopycnal_dist));
-%     
-%     isopycnal_dist(isopycnal_dist == 0) = NaN;
-%     
-%     %%% Computing stratification and potential vorticity
-%     ts_strat = [];
-%     ts_pv = [];
-%     ts_strat = 1 ./ isopycnal_dist;
-%     for i = 1:length(unique(ts_dates))
-%         ts_pv(:,i) = -gsw_f(ts_lat(i)) * ts_strat(:,i);
-%     end
-%    
-%     %%% Creating time series
-%     figure('Renderer', 'painters', 'Position', [100 100 1300 500]);
-%     p = pcolor(unique(ts_dates), isopycnal_dist_y_axis, isopycnal_dist);  
-%     set(p, 'EdgeColor', 'none')
-%     set(gca, 'YDir','reverse');
-%     set(gca, 'Layer','top')
-%     cmap = cmocean('thermal');
-%     colormap(cmap);
-%     colorbar;
-%     xticks(linspace(ts_dates(1), ts_dates(end), (ts_dates(end) - ts_dates(1)) / 5))
-%     datetick('x', 'mm/dd', 'keepticks');
-%     title('Isopycnal Separation (Original Method)')
-%     xlabel('Date (mm/dd)');
-%     
-%     %%% Computing outliers
-%     outliers = double(isoutlier(isopycnal_dist, 'movmean', 100, 2));
-%     
-%     %%% Removing insignificant outliers (not large in size)
-%     false_outliers = find(sum(outliers, 1) < 10);
-%     outliers(:, false_outliers) = 0;
-%     
-%     %%% Removing outliers in the beginning and end of the time series
-%     beg_end_interval = 20;
-%     outliers(:,[1:beg_end_interval (length(outliers) - beg_end_interval):length(outliers)]) = 0;
-%     
-%     %%% Creating time series of outliers
-%     figure('Renderer', 'painters', 'Position', [100 100 1300 500])
-%     p = pcolor(unique(ts_dates), isopycnal_dist_y_axis, outliers);
-%     set(p, 'EdgeColor', 'none')
-%     set(gca, 'YDir','reverse');
-%     set(gca, 'Layer','top')
-%     cmap = cmocean('thermal');
-%     colormap(cmap);
-%     colorbar;
-%     xticks(linspace(ts_dates(1), ts_dates(end), (ts_dates(end) - ts_dates(1)) / 5))
-%     datetick('x', 'mm/dd', 'keepticks');
-%     xlabel('Date (mm/dd)');
-%     title('Outliers (Original Method)')
-%     
-%     %%% Getting time series indicies of outliers
-%     outlier_indicies = find(sum(outliers,1) > 0);
-%     outlier_dist = pdist2(outlier_indicies', outlier_indicies');
-%     
-%     closeDistances = double(outlier_dist < 10);
-%     no_groups = sum(closeDistances, 1);
-% 
-% % %%%%%%%%%%%%%%%%%%%%%%%%%
-% % %% Initial PV Attempt %%%
-% % %%%%%%%%%%%%%%%%%%%%%%%%%
-% 
-%     ts_strat = [];
-%     ts_pv = [];
-%     %%% calculating PV
-%     for i = 1:length(unique(ts_dates))
-%         ts_strat(:,i) = diff(ts_density(:,i),1);
-%         ts_pv(:,i) = -gsw_f(ts_lat(i)) * ts_strat(:,i);
-%     end
-% 
-%     figure();
-%     hold on
-%     p = pcolor(unique(ts_dates), 1:499, ts_pv);  
-%     set(p, 'EdgeColor', 'none')
-%     set(gca, 'YDir','reverse');
-%     set(gca, 'Layer','top')
-%     colorbar;
-%     
-%     [C,h] = contour(unique(ts_dates), 1:500, ts_density, [1027.1, 1027.2, 1027.3, 1027.4, 1027.5, 1027.6, 1027.7, 1027.8, 1027.9], 'EdgeColor', 'k');
-%     clabel(C,h,'LabelSpacing',500);
-%     
-%     contours_data = getContourLineCoordinates(h);
-%     idy = h.LevelList;
-%     idx = find(contours_data.Level == h.LevelList(6));
-%     levels = table2array(contours_data(idx,3:4));
-%     specific_density_level = sortrows(levels, 1);
-%     
-%     for i = 1:length(level_1)
-%         level_1(i,3) = ts_density(find(specific_density_levels(5,1) == unique(ts_dates)), level_1(i,2));
-%     
-%     plot(level_1(:,1), level_1(:,2))
-%     
-%     hold off
-%     end
-% end
+function o = outlier_detection_date_version(colorbar_variable, date_indexes)
+        %%% Initializing outlier matrix
+        o = zeros(size(colorbar_variable));
+        
+        %%% Loop through data to find outliers over the course of a given
+        %%% time window
+        for i = 1:size(colorbar_variable,1)
+            for j = 1:size(colorbar_variable,2)
+                
+                movMat_before = colorbar_variable(i, date_indexes{1,j});
+                
+                movMat_after = colorbar_variable(i, date_indexes{2,j});
+                
+                outliers_gen = isoutlier([movMat_before colorbar_variable(i,j) movMat_after]);
+                
+                o(i,j) = double(outliers_gen(length(movMat_before) + 1));
+            end
+        end
+end
+    
+function pp = pcolor_plots(x_axis, colorbar)
+    pp = pcolor(x_axis, 1:size(colorbar,1), colorbar);
+    set(pp, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    xticks([''])
+    xlim([x_axis(1) x_axis(end)]);
+end
