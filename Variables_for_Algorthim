@@ -1,0 +1,288 @@
+for tag_no = 48
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%% Calculating All Variables %%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    %%% Converting time data into datenum
+    ts_time = datenum(qc_ts(tag_no).time);
+    
+    %%% Absolute salinity calculation
+    ts_salt_absolute = gsw_SA_from_SP(qc_ts(tag_no).salt, depth_grid', qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+    
+    %%% Conservative temperature calculation
+    ts_temp_conservative = gsw_CT_from_t(ts_salt_absolute, qc_ts(tag_no).temp, depth_grid');
+    
+    %%% Density calculation
+    ts_density = gsw_rho(ts_salt_absolute, ts_temp_conservative, zeros(size(ts_salt_absolute,1), size(ts_salt_absolute,2)));
+    
+    %%% Spiciness calculation
+    ts_spice = gsw_spiciness0(ts_salt_absolute, ts_temp_conservative);
+    
+    %%% Stratification calculation
+    [ts_Nsquared,~] = gsw_Nsquared(ts_salt_absolute, ts_temp_conservative, depth_grid' .* ones(size(qc_ts(tag_no).salt)), qc_ts(tag_no).lat .* ones(size(qc_ts(tag_no).salt)));
+    ts_Nsquared(500,:) = NaN(1,size(ts_Nsquared,2));
+    
+    %%% PV calculation
+    ts_dp_dz = diff(ts_density, 1);
+    ts_pv = NaN(length(depth_grid), length(ts_time));
+    ts_pv(1:size(ts_dp_dz,1),:) = -gsw_f(qc_ts(tag_no).lat) .* ts_dp_dz;
+    
+    %%% Dynamic Height Anomaly calculation
+    ts_dha = gsw_geo_strf_dyn_height(ts_salt_absolute, ts_temp_conservative, depth_grid', 10);
+    
+    %%% Isopycnal Space calculation
+    
+        %%% Creating y-axis for density-space isopycnal separation calculation
+        isopycnal_dist_y_axis = min(min(ts_density)):0.01:max(max(ts_density));
+
+        %%% Density-space isopycnal separation calculation
+        isopycnal_dist = NaN(length(isopycnal_dist_y_axis), length(ts_time));
+        for i = 1:length(ts_time)
+            u = 1;
+            for j = isopycnal_dist_y_axis
+                isopycnal_dist(u,i) = length(find(ts_density(:,i) <= (j+0.05) & ts_density(:,i) >= (j-0.05)));
+                u = u + 1;
+            end
+        end
+
+        %%% Calculating pressure in density-space
+        density = [];
+        density_final = [];
+        depths = [];
+        ts_pres = NaN(length(isopycnal_dist_y_axis), length(ts_time));
+        u = 1;
+        for i = 1:size(ts_density,2)
+            density = ts_density(:,i);
+            density_final = density(isnan(density) == 0);
+            depths = depth_grid(isnan(density) == 0);
+            [a,b] = unique(density_final);
+            if length(b) > 2
+                ts_pres(:,u) = interp1(density_final(b), depths(b), isopycnal_dist_y_axis');
+                u = u + 1;
+            end
+        end
+    
+        %%% Calculating isopycnal separation in pressure-space
+        pres = [];
+        pres_final = [];
+        isopycnal_dist_ds = [];
+        ts_isopycnal_dist = NaN(length(depth_grid), length(ts_time));
+        u = 1;
+        for i = 1:size(ts_pres,2)
+            pres = ts_pres(:,i);
+            pres_final = pres(isnan(pres) == 0);
+            isopycnal_dist_ds = isopycnal_dist(:,i);
+            isopycnal_dist_ds = isopycnal_dist_ds(isnan(pres) == 0);
+            [a,b] = unique(pres_final);
+            if length(b) > 2
+                ts_isopycnal_dist(:,u) = interp1(pres_final(b), isopycnal_dist_ds(b), depth_grid);
+                u = u + 1;
+            end
+        end
+        
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%% Smoothing Variables %%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    %%% Computing averaging windows for two-day running mean
+    %%% Note: number of profiles collected every two days is not consistent
+    day_average = 1;
+    j = 1;
+    ts_dates_tda = {};
+    for i = ts_time'
+        ts_dates_tda(1,j) = {find(ts_time > i & ts_time < i+day_average)};
+        ts_dates_tda(2,j) = {find(ts_time < i & ts_time > i-day_average)};
+        j = j + 1;
+    end
+    
+    %%% Computing temperature, salinity, and density data for two-day running mean
+    salt_runmean_initial = [];
+    ts_salt_runmean = NaN(length(depth_grid), length(ts_time));
+    temp_runmean_initial = [];
+    ts_temp_runmean = NaN(length(depth_grid), length(ts_time));
+    spice_runmean_initial = [];
+    ts_spice_runmean = NaN(length(depth_grid), length(ts_time));
+    Nsquared_runmean_initial = [];
+    ts_Nsquared_runmean = NaN(length(depth_grid), length(ts_time));
+    pv_runmean_initial = [];
+    ts_pv_runmean = NaN(length(depth_grid), length(ts_time));
+    dha_runmean_initial = [];
+    ts_dha_runmean = NaN(length(depth_grid), length(ts_time));
+    isopycnal_dist_runmean_initial = [];
+    ts_isopycnal_dist_runmean = NaN(length(depth_grid), length(ts_time));
+    
+    for i = 1:length(depth_grid)
+        for j = 1:length(ts_dates_tda)
+            salt_runmean_initial(i,:) = movmean(qc_ts(tag_no).salt(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_salt_runmean(i,j) = salt_runmean_initial(i,j);
+            temp_runmean_initial(i,:) = movmean(qc_ts(tag_no).temp(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_temp_runmean(i,j) = temp_runmean_initial(i,j);
+            spice_runmean_initial(i,:) = movmean(ts_spice(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_spice_runmean(i,j) = spice_runmean_initial(i,j);
+            Nsquared_runmean_initial(i,:) = movmean(ts_Nsquared(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_Nsquared_runmean(i,j) = Nsquared_runmean_initial(i,j);
+            pv_runmean_initial(i,:) = movmean(ts_pv(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_pv_runmean(i,j) = pv_runmean_initial(i,j);
+            dha_runmean_initial(i,:) = movmean(ts_dha(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_dha_runmean(i,j) = dha_runmean_initial(i,j);
+            isopycnal_dist_runmean_initial(i,:)  = movmean(ts_isopycnal_dist(i,:), [length(ts_dates_tda{1,j}) length(ts_dates_tda{2,j})], 'omitnan');
+            ts_isopycnal_dist_runmean(i,j) = isopycnal_dist_runmean_initial(i,j);
+        end
+    end
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%% Visualizing Variables %%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%    
+    delz = 5; %%% Pcolor resolution
+    
+    fig = figure('Renderer', 'painters', 'Position', [100 100 1300 1000]);
+    sgtitle('MEOP Tag: ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
+    
+    %%% Salinity subplot
+    ax1 = subplot(3,1,1);
+    time_series_gen(ts_time, depth_grid(1:delz:end),'pressure', ts_salt_runmean(1:delz:end,:), 'salinity', ax1, 'meop')
+    contours(ts_time, depth_grid, 'density', ts_salt_runmean, ts_temp_runmean)
+    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+    xlim([ts_time(1) ts_time(end)]);
+    datetick('x', 'mm/dd', 'keepticks');
+    
+    %%% Temperature subplot
+    ax2 = subplot(3,1,2);
+    time_series_gen(ts_time, depth_grid(1:delz:end),'pressure', ts_temp_runmean(1:delz:end,:), 'temperature', ax2, 'meop')
+    contours(ts_time, depth_grid, 'density', ts_salt_runmean, ts_temp_runmean)
+    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+    xlim([ts_time(1) ts_time(end)]);
+    datetick('x', 'mm/dd', 'keepticks');
+    
+    %%% UNCOMMENT DESIRED 3RD SUBPLOT %%%
+    
+    %%% Spice subplot
+    ax3 = subplot(3,1,3);
+    p = pcolor(ax3, ts_time, depth_grid(1:delz:end), ts_spice_runmean(1:delz:end,:));  
+    set(p, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    cmap = cmocean('thermal');
+    colormap(ax3, cmap);
+    colorbar;
+    xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+    datetick('x', 'mm/dd', 'keepticks');
+    title('Spice')
+    
+    %%% N-squared subplot
+%     p = pcolor(ax3, ts_time, depth_grid(1:delz:end), ts_Nsquared_runmean(1:delz:end,:));  
+%     set(p, 'EdgeColor', 'none');
+%     set(gca, 'YDir','reverse');
+%     set(gca, 'Layer','top');
+%     cmap = cmocean('thermal');
+%     colormap(ax3, cmap);
+%     colorbar;
+%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+%     datetick('x', 'mm/dd', 'keepticks');
+%     title('N^2')
+%     
+    %%% PV subplot
+%     p = pcolor(ax3, ts_time, depth_grid(1:delz:end), ts_pv_runmean(1:delz:end,:));  
+%     set(p, 'EdgeColor', 'none');
+%     set(gca, 'YDir','reverse');
+%     set(gca, 'Layer','top');
+%     cmap = cmocean('thermal');
+%     colormap(ax3, cmap);
+%     colorbar;
+%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+%     datetick('x', 'mm/dd', 'keepticks');
+%     title('PV')
+    
+    %%% Dynamic Height Anomaly subplot
+%     p = pcolor(ax3, ts_time, depth_grid(1:delz:end), ts_dha_runmean(1:delz:end,:));  
+%     set(p, 'EdgeColor', 'none');
+%     set(gca, 'YDir','reverse');
+%     set(gca, 'Layer','top');
+%     cmap = cmocean('thermal');
+%     colormap(ax3, cmap);
+%     colorbar;
+%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+%     datetick('x', 'mm/dd', 'keepticks');
+%     title('Dynamic Height Anomaly')
+    
+    %%% Isopycnal Separation subplot
+%     p = pcolor(ax3, ts_time, depth_grid(1:delz:end), ts_isopycnal_dist_runmean(1:delz:end,:));  
+%     set(p, 'EdgeColor', 'none');
+%     set(gca, 'YDir','reverse');
+%     set(gca, 'Layer','top');
+%     cmap = cmocean('thermal');
+%     colormap(ax3, cmap);
+%     colorbar;
+%     xticks(linspace(ts_time(1), ts_time(end), (ts_time(end) - ts_time(1)) / 5))
+%     datetick('x', 'mm/dd', 'keepticks');
+%     title('Isopycnal Separation')
+   
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%% Anomaly Calculations %%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    %%% Time window to calculate means (against which the anomaly is
+    %%% calculated)
+    ts_dates_outliers = {};
+    j = 1;
+    for i = ts_time'
+        ts_dates_outliers(1,j) = {find(ts_time < i-2 & ts_time > i-14)};
+        ts_dates_outliers(2,j) = {find(ts_time > i+2 & ts_time < i+14)};
+        j = j + 1;
+    end
+   
+    %%% Isopycnal Separation Anomaly Calculation
+    ts_isopycnal_dist_anomaly = NaN(size(ts_isopycnal_dist));
+    for i = 1:size(ts_isopycnal_dist, 1)
+        for j = 1:size(ts_isopycnal_dist, 2)
+            ts_isopycnal_dist_anomaly(i,j) = ts_isopycnal_dist(i,j) - mean([ts_isopycnal_dist(i, ts_dates_outliers{1,j}) ts_isopycnal_dist(i, ts_dates_outliers{2,j})], 'omitnan');
+        end
+    end
+    
+    %%% N-squared Anomaly Calculation
+    ts_Nsquared_anomaly = NaN(size(ts_Nsquared));
+    for i = 1:size(ts_Nsquared, 1)
+        for j = 1:size(ts_Nsquared, 2)
+            ts_Nsquared_anomaly(i,j) = ts_Nsquared(i,j) - mean([ts_Nsquared(i, ts_dates_outliers{1,j}) ts_Nsquared(i, ts_dates_outliers{2,j})]);
+        end
+    end
+    
+    %%% Spice Anomaly Calculation
+    ts_spice_anomaly = NaN(size(ts_spice));
+    for i = 1:size(ts_spice, 1)
+        for j = 1:size(ts_spice, 2)
+            ts_spice_anomaly(i,j) = ts_spice(i,j) - mean([ts_spice(i, ts_dates_outliers{1,j}) ts_spice(i, ts_dates_outliers{2,j})]);
+        end
+    end
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%% Anomaly Visualizations %%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    %%% Isopycnal Separation Anomaly
+    figure()
+    pp = pcolor(ts_time, depth_grid(1:delz:end), ts_isopycnal_dist_anomaly(1:delz:end,:));
+    set(pp, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    caxis([-max([abs(min(min(ts_isopycnal_dist_anomaly))) max(max(ts_isopycnal_dist_anomaly))]) max([abs(min(min(ts_isopycnal_dist_anomaly))) max(max(ts_isopycnal_dist_anomaly))])]);
+    cmap = cmocean('balance');
+    colormap(cmap);
+    colorbar;
+    title('Isopycnal Separation Anomaly');
+    datetick('x', 'mm/dd', 'keepticks');
+    
+    %%% N-squared Anomaly
+    figure()
+    pp = pcolor(ts_time, depth_grid(1:delz:499), ts_Nsquared_anomaly(1:delz:end,:));
+    set(pp, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    title('N^2 anomaly');
+    caxis([-max([abs(min(min(ts_Nsquared_anomaly))) max(max(ts_Nsquared_anomaly))]) max([abs(min(min(ts_Nsquared_anomaly))) max(max(ts_Nsquared_anomaly))])]);
+    cmap = cmocean('balance');
+    colormap(cmap);
+    colorbar;
+    datetick('x', 'mm/dd', 'keepticks');
+end
