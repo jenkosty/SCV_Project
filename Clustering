@@ -1,0 +1,302 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Algorithm to Detect MEOP SCVs %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% QUALITY CONTROL THRESHOLDS
+qc.min_depth    = [350]; % minimum depth to be considered a 'good' profile
+qc.min_profiles = [100];   % minimum number of 'good' profiles for a timeseries
+qc.max_time_gap = [5];   % max gap (days) between 'good' profiles before rejection
+
+dbar_grid = 1:500;
+delz=5;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DATA LOADING AND MANIPULATION
+
+meop_data = interp_meop_data;
+
+%%% Grab MEOP meta data (tag num, date) and group them into time-series
+for i = 1:length(meop_data)
+    tagnum(i)   = meop_data(i).tag; % tag num
+    profdate(i) = datenum(meop_data(i).time); % date
+end
+
+%%% Get unique tag numbers
+taglist = unique(tagnum);
+
+%%% Go through each tagnum and assign a cast number
+meop_ts = [];
+for i = 1:length(taglist)
+	%%% Find profiles with that tagnum
+	tagidx = find(tagnum == taglist(i));
+
+	%%% Start meop time-series
+	meop_ts(i).tag = taglist(i);
+
+	%%% Sort the profiles by date
+	[a,b] = sort(profdate(tagidx),'ascend');
+
+	%%% Go through all instances of the same tag and fill in the data
+	for j = 1:length(b)
+		meop_ts(i).cast(j)   = j;						  % cast number
+		meop_ts(i).lat(j)    = meop_data(tagidx(j)).lat;  % latitude
+		meop_ts(i).lon(j)    = meop_data(tagidx(j)).lon;  % longitude
+		meop_ts(i).time(j,:) = meop_data(tagidx(j)).time; % cast date
+		meop_ts(i).salt(:,j) = meop_data(tagidx(j)).salt; % salinity
+		meop_ts(i).temp(:,j) = meop_data(tagidx(j)).temp; % temperature
+	end	
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% FIRST QC FLAG (max depth) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Flag all casts that don't go deep enough
+flagit = [];
+for i = 1:length(meop_ts)
+	for j = 1:length(meop_ts(i).cast)
+		tmpdat = [meop_ts(i).temp(:,j) + meop_ts(i).salt(:,j)];
+		ind = find(isnan(tmpdat)==0);
+		if dbar_grid(ind(end)) < qc.min_depth
+			flagit = [flagit; i j];
+		end
+	end
+end
+
+%%% Remove
+for i = size(flagit,1):-1:1 % (NOTE: Flipped direction of deletion (issue with deleting correct profile)
+	meop_ts(flagit(i,1)).cast(flagit(i,2))   = [];
+	meop_ts(flagit(i,1)).lat(flagit(i,2))    = [];
+	meop_ts(flagit(i,1)).lon(flagit(i,2))    = [];
+	meop_ts(flagit(i,1)).time(flagit(i,2),:) = [];
+	meop_ts(flagit(i,1)).salt(:,flagit(i,2)) = [];
+	meop_ts(flagit(i,1)).temp(:,flagit(i,2)) = [];
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% SECOND QC FLAG (time gap) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Find where gap between casts is too large
+%%% Set up a tag modifier to separate one T-S into many
+tslist  = {'A','B','C','D','E','F','G','H',...
+		   'I','J','K','L','M','N','O','P'};
+
+%%% Set up a total time-series counter
+tscount = 1;
+for i = 1:length(meop_ts)
+	% Clear loop variables
+	ts_dates = []; didx = []; ind = []; tmpidx = [];
+	% Find difference in dates between casts
+	ts_dates = datenum(meop_ts(i).time);
+	% Find where difference exceeds QC threshold (max time between casts)
+	didx     = diff(ts_dates)<qc.max_time_gap;
+	% Find the gaps greater than QC threshold 
+	ind      = find(didx == 1); 
+	% Clear start of time-series
+	ts_start = []; ts_end = []; ts_cnt = 1;
+	if isempty(ind);
+		% No good groups found, go to next MEOP time-series
+		continue
+	elseif length(ind)==1
+		% Only one group of consecutive casts exist
+		tmpidx{ts_cnt} = [ind:ind+1];
+	else
+		% Many groups exist, separate them
+		for j = 1:length(ind);
+			if isempty(ts_start)
+				ts_start = ind(j);
+			end
+			if j < length(ind) & ismember(ind(j)+1,ind);
+				continue;
+			else
+				ts_end = ind(j)+1;
+				tmpidx{ts_cnt} = [ts_start:ts_end];
+				ts_start = []; ts_end = [];
+				ts_cnt = ts_cnt + 1;
+			end
+		end
+	end
+	% Assign 'good' consecutive casts into separate time-series	
+	for j = 1:length(tmpidx)
+		qc_ts(tscount).tag  = [num2str(meop_ts(i).tag),tslist{j}];
+		%%% Save as QC'd timeseries
+		qc_ts(tscount).cast = meop_ts(i).cast(tmpidx{j});
+		qc_ts(tscount).lat  = meop_ts(i).lat(tmpidx{j});
+		qc_ts(tscount).lon  = meop_ts(i).lon(tmpidx{j});
+		qc_ts(tscount).time = meop_ts(i).time(tmpidx{j},:);
+		qc_ts(tscount).temp = meop_ts(i).temp(:,tmpidx{j});
+		qc_ts(tscount).salt = meop_ts(i).salt(:,tmpidx{j});
+		%%% Increase counter
+		tscount = tscount + 1;
+	end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% THIRD QC FLAG (min profiles) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Find timeseries without enough profiles
+Np = [];
+for i = 1:length(qc_ts)
+	Np(i) = length(qc_ts(i).cast);
+end
+ind = find(Np < qc.min_profiles);
+qc_ts(ind) = [];
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DETECTION ALGORTHIM START
+
+for tag_no = 48
+    
+    %%% Converting time data into datenum
+    ts_time = datenum(qc_ts(tag_no).time);
+    
+    %%% Density calculation
+    ts_density = gsw_rho(qc_ts(tag_no).salt, qc_ts(tag_no).temp, zeros(size(qc_ts(tag_no).salt,1), size(qc_ts(tag_no).salt,2)));
+    
+    %%% Absolute salinity calculation
+    ts_salt_absolute = gsw_SA_from_SP(qc_ts(tag_no).salt, depth_grid', qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+    
+    %%% Conservative temperature calculation
+    ts_temp_conservative = gsw_CT_from_t(ts_salt_absolute, qc_ts(tag_no).temp, depth_grid');
+    
+    %%% Spiciness calculation
+    ts_spice = gsw_spiciness0(ts_salt_absolute, ts_temp_conservative);
+    
+    %%% Stratification calculation
+    [ts_Nsquared,~] = gsw_Nsquared(ts_salt_absolute, ts_temp_conservative, depth_grid' .* ones(size(qc_ts(tag_no).salt)), qc_ts(tag_no).lat .* ones(size(qc_ts(tag_no).salt)));
+    
+    %%% PV calculation
+    ts_dp_dz = diff(ts_density, 1);
+    ts_pv = -gsw_f(qc_ts(tag_no).lat) .* ts_dp_dz;
+    
+    %%% Dynamic Height Anomaly calculation
+    ts_dha = gsw_geo_strf_dyn_height(ts_salt_absolute, ts_temp_conservative, depth_grid', 10);
+    
+    %%% Creating y-axis isopycnal separation calculation
+    isopycnal_dist_y_axis = min(min(ts_density)):0.01:max(max(ts_density));
+
+    %%% Isopycnal separation calculation
+    isopycnal_dist = [];
+    for i = 1:length(ts_time)
+        u = 1;
+        for j = isopycnal_dist_y_axis
+            isopycnal_dist(u,i) = length(find(ts_density(:,i) <= (j+0.05) & ts_density(:,i) >= (j-0.05)));
+            u = u + 1;
+        end
+    end
+    
+    %%% Getting pressure in density space
+    ts_pres = [];
+    density = [];
+    density_final = [];
+    depths = [];
+    u = 1;
+    for i = 1:size(ts_density,2)
+        density = ts_density(:,i);
+        density_final = density(isnan(density) == 0);
+        depths = depth_grid(isnan(density) == 0);
+        [a,b] = unique(density_final);
+        if length(b) > 2
+            ts_pres(:,u) = interp1(density_final(b), depths(b), isopycnal_dist_y_axis');
+            u = u + 1;
+        end
+    end
+    
+    %%% Getting isopycnal separation into pressure space
+    ts_isopycnal_dist = [];
+    pres = [];
+    pres_final = [];
+    isopycnal_dist_ds = [];
+    u = 1;
+    for i = 1:size(ts_pres,2)
+        pres = ts_pres(:,i);
+        pres_final = pres(isnan(pres) == 0);
+        isopycnal_dist_ds = isopycnal_dist(:,i);
+        isopycnal_dist_ds = isopycnal_dist_ds(isnan(pres) == 0);
+        [a,b] = unique(pres_final);
+        if length(b) > 2
+            ts_isopycnal_dist(:,u) = interp1(pres_final(b), isopycnal_dist_ds(b), depth_grid);
+            u = u + 1;
+        end
+    end
+    
+    figure()
+    pp = pcolor(ts_time, depth_grid(1:delz:end), ts_isopycnal_dist(1:delz:end,:));
+    set(pp, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    title('Isopycnal Separation')
+    colorbar;
+    datetick('x', 'mm/dd', 'keepticks');
+   
+    %%% Identifying outliers (using a moving mean across 12 days)
+    ts_dates_outliers = {};
+    j = 1;
+    for i = ts_time'
+        ts_dates_outliers(1,j) = {find(ts_time < i-2 & ts_time > i-14)};
+        ts_dates_outliers(2,j) = {find(ts_time > i+2 & ts_time < i+14)};
+        j = j + 1;
+    end
+    
+    %%% Isopycnal Separation Anomaly Calculation
+    ts_isopycnal_dist_anomaly = [];
+    for i = 1:size(ts_isopycnal_dist, 1)
+        for j = 1:size(ts_isopycnal_dist, 2)
+            ts_isopycnal_dist_anomaly(i,j) = ts_isopycnal_dist(i,j) - mean([ts_isopycnal_dist(i, ts_dates_tda{1,j}) ts_isopycnal_dist(i, ts_dates_outliers{2,j})], 'omitnan');
+        end
+    end
+  
+    figure()
+    pp = pcolor(ts_time, depth_grid(1:delz:end), ts_isopycnal_dist_anomaly(1:delz:end,:));
+    set(pp, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    caxis([-max([abs(min(min(ts_isopycnal_dist_anomaly))) max(max(ts_isopycnal_dist_anomaly))]) max([abs(min(min(ts_isopycnal_dist_anomaly))) max(max(ts_isopycnal_dist_anomaly))])]);
+    cmap = cmocean('balance');
+    colormap(cmap);
+    colorbar;
+    title('Isopycnal Separation Anomaly');
+    datetick('x', 'mm/dd', 'keepticks');
+    
+    %%% N-squared Anomaly Calculation
+    ts_Nsquared_anomaly = [];
+    for i = 1:size(ts_Nsquared, 1)
+        for j = 1:size(ts_Nsquared, 2)
+            ts_Nsquared_anomaly(i,j) = ts_Nsquared(i,j) - mean([ts_Nsquared(i, ts_dates_outliers{1,j}) ts_Nsquared(i, ts_dates_outliers{2,j})]);
+        end
+    end
+    
+    figure()
+    pp = pcolor(ts_time, depth_grid(1:delz:499), ts_Nsquared_anomaly(1:delz:end,:));
+    set(pp, 'EdgeColor', 'none');
+    set(gca, 'YDir','reverse');
+    set(gca, 'Layer','top');
+    title('N^2 anomaly');
+    caxis([-max([abs(min(min(ts_Nsquared_anomaly))) max(max(ts_Nsquared_anomaly))]) max([abs(min(min(ts_Nsquared_anomaly))) max(max(ts_Nsquared_anomaly))])]);
+    cmap = cmocean('balance');
+    colormap(cmap);
+    colorbar;
+    datetick('x', 'mm/dd', 'keepticks');
+    
+    %%% Spice Anomaly Calculation
+    ts_spice_anomaly = [];
+    for i = 1:size(ts_spice, 1)
+        for j = 1:size(ts_spice, 2)
+            ts_spice_anomaly(i,j) = ts_spice(i,j) - mean([ts_spice(i, ts_dates_outliers{1,j}) ts_spice(i, ts_dates_outliers{2,j})]);
+        end
+    end
+    
+    %%% Figures to visualize clustering
+    figure()
+    scatter3(ts_spice_anomaly(350,:), ts_isopycnal_dist_anomaly(350,:), ts_Nsquared_anomaly(350,:))
+    
+    figure()
+    subplot(1,3,1)
+    scatter(ts_Nsquared_anomaly(275,:), ts_isopycnal_dist_anomaly(275,:))
+    subplot(1,3,2)
+    scatter(ts_spice_anomaly(275,:), ts_isopycnal_dist_anomaly(275,:))
+    subplot(1,3,3)
+    scatter(ts_Nsquared_anomaly(275,:),ts_spice_anomaly(275,:));
+end
