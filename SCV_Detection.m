@@ -1,472 +1,358 @@
 
-RTOPO_lat = double(ncread('/Users/jenkosty/Downloads/Research/detectSCV-main/RTOPO2.nc', 'lat'));
-RTOPO_lon = double(ncread('/Users/jenkosty/Downloads/Research/detectSCV-main/RTOPO2.nc', 'lon'))';
-RTOPO_bedrock_topography = double(ncread('/Users/jenkosty/Downloads/Research/detectSCV-main/RTOPO2.nc', 'bedrock_topography'))';
+%%% Loading MEOP data
+load("SealData_All.mat");
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-inner_window = 2; %%% setting inner "exclusion" window for background calculation
-outer_window = 7; %%% setting outer "inclusion" window for background calculation
-
-for tag_no = 362
-    clear meop_ts
-
-    %%% Creating new structure for current seal
-    meop_ts = qc_ts(tag_no);
-
-    %%% Finding indices to use for background profile calculation
-    for i = 1:length(qc_ts(tag_no).cast)
-        mean_ind(1,i) = {(i-outer_window):(i-inner_window)};
-        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
-        mean_ind(2,i) = {(i+inner_window):(i+outer_window)};
-        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
-    end
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%%%%%%% Calculating Reference Profiles %%%%%%%%%%%%%%%%%%%%%%%%
-
-    %%% Creating reference profiles against which the anomalies can be
-    %%% calculated
-    for i = 1:length(meop_ts.cast)
-        meop_ts.ref.salt(:,i) = mean(meop_ts.salt(:,[mean_ind{1,i} mean_ind{2,i}]), 2, 'omitnan');
-        meop_ts.ref.temp(:,i) = mean(meop_ts.temp(:,[mean_ind{1,i} mean_ind{2,i}]), 2, 'omitnan');
-    end
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%%%%%%%%%%%%%%% Bathymetry Check %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-    %%% Creates new time series with profiles that may be checked for SCVs
-
-    %%% Finding bathymetry along seal time series
-    ts_bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, meop_ts.lon, meop_ts.lat);
-
-    %%% Calculating bathymetry of background profile
-    ref_bathymetry_mean = NaN(size(ts_bathymetry));
-    ref_bathymetry_std = NaN(size(ts_bathymetry));
-    for i = 1:length(qc_ts(tag_no).cast)
-        ref_bathymetry_mean(i) = mean(ts_bathymetry([mean_ind{1,i}, mean_ind{2,i}]));
-        ref_bathymetry_std(i) = std(ts_bathymetry([mean_ind{1,i}, mean_ind{2,i}]));
-    end
-
-    %%% Checking each profile against assigned background profile
-    bathymetry_change = abs(ts_bathymetry - ref_bathymetry_mean);
-
-    %%% Flagging profiles for removal based on bathymetry check
-    flagit = find((bathymetry_change > 500) | (ref_bathymetry_std > 500));
-
-    %%% Removing flagged profiles from seal time series
-    meop_ts.cast(flagit) = [];
-    meop_ts.lat(flagit) = [];
-    meop_ts.lon(flagit) = [];
-    meop_ts.time(flagit,:) = [];
-    meop_ts.salt(:,flagit) = [];
-    meop_ts.temp(:,flagit) = [];
-
-    %%% Removing corresponding reference profiles
-    meop_ts.ref.salt(:,flagit) = [];
-    meop_ts.ref.temp(:,flagit) = [];
-
-    clear ts_bathymetry ref_bathymetry_std ref_bathymetry_mean bathymetry_change i
-    
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%%%%%% Calculating Pressure Space Variables %%%%%%%%%%%%%%%%%%%
-    
-    %%% Creating pressure time series
-    depth_grid = 1:500;
-    depth_grid = depth_grid';
-    meop_ts.pres = depth_grid .* ones(size(meop_ts.salt));
-
-    %%% Calculating absolute salinity and conservative temperature
-    meop_ts.salt_absolute = gsw_SA_from_SP(meop_ts.salt, meop_ts.pres, meop_ts.lon, meop_ts.lat);
-    meop_ts.temp_conservative = gsw_CT_from_t(meop_ts.salt_absolute, meop_ts.temp, meop_ts.pres);
-
-    for i = 1:length(meop_ts.cast)
-        %%% Finding maximum depth
-        meop_ts.max_depth(i) = find(~isnan(meop_ts.temp(:,i)),1,'last');
-
-        %%% calculating dynamic height anomaly
-        meop_ts.dyn_height_anom(:,i) = gsw_geo_strf_dyn_height(meop_ts.salt_absolute(:,i), meop_ts.temp_conservative(:,i), meop_ts.pres(:,i), meop_ts.max_depth(i));
-    end
-
-    %%% Calculating density
-    meop_ts.density = gsw_rho(meop_ts.salt_absolute, meop_ts.temp_conservative, meop_ts.pres);
-
-    %%% Calculating Potential Density Anomaly
-    meop_ts.sigma0 = gsw_sigma0(meop_ts.salt_absolute, meop_ts.temp_conservative);
-
-    %%% Calculating N^2
-    [meop_ts.N2,~] = gsw_Nsquared(meop_ts.salt_absolute, meop_ts.temp_conservative, meop_ts.pres, meop_ts.lat .* ones(size(meop_ts.salt)));
-    
-    %%% Creating density grid for interpolation
-    density_grid(:,1) = linspace(1026.5, 1030, 500);
-
-    %%% Interpolating into density space
-    for i = 1:length(meop_ts.cast)
-        meop_ts.ds.salt(:,i) = interp1(meop_ts.density(~isnan(meop_ts.density(:,i)),i), meop_ts.salt(~isnan(meop_ts.density(:,i)),i), density_grid);
-        meop_ts.ds.temp(:,i) = interp1(meop_ts.density(~isnan(meop_ts.density(:,i)),i), meop_ts.temp(~isnan(meop_ts.density(:,i)),i), density_grid);
-        meop_ts.ds.pres(:,i) = interp1(meop_ts.density(~isnan(meop_ts.density(:,i)),i), meop_ts.pres(~isnan(meop_ts.density(:,i)),i), density_grid);
-    end
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%% Calculating Reference Pressure Space Variables %%%%%%%%%%%%%
-
-    %%% Creating pressure time series
-    meop_ts.ref.pres = depth_grid .* ones(size(meop_ts.salt));
-
-    %%% Calculating absolute salinity and conservative temperature
-    meop_ts.ref.salt_absolute = gsw_SA_from_SP(meop_ts.ref.salt, meop_ts.ref.pres, meop_ts.lon, meop_ts.lat);
-    meop_ts.ref.temp_conservative = gsw_CT_from_t(meop_ts.ref.salt_absolute, meop_ts.ref.temp, meop_ts.ref.pres);
-
-    for i = 1:length(meop_ts.cast)
-        %%% Finding maximum depth
-        meop_ts.ref.max_depth(i) = find(~isnan(meop_ts.ref.temp(:,i)),1,'last');
-
-        %%% calculating dynamic height anomaly
-        meop_ts.ref.dyn_height_anom(:,i) = gsw_geo_strf_dyn_height(meop_ts.ref.salt_absolute(:,i), meop_ts.ref.temp_conservative(:,i), meop_ts.ref.pres(:,i), meop_ts.ref.max_depth(i));
-    end
-
-    %%% Calculating density
-    meop_ts.ref.density = gsw_rho(meop_ts.ref.salt_absolute, meop_ts.ref.temp_conservative, meop_ts.ref.pres);
-
-    %%% Calculating Potential Density Anomaly
-    meop_ts.ref.sigma0 = gsw_sigma0(meop_ts.ref.salt_absolute, meop_ts.ref.temp_conservative);
-
-    %%% Calculating N^2
-    [meop_ts.ref.N2,~] = gsw_Nsquared(meop_ts.ref.salt_absolute, meop_ts.ref.temp_conservative, meop_ts.ref.pres, meop_ts.lat .* ones(size(meop_ts.ref.salt)));
-
-    %%% Interpolating into density space
-    for i = 1:length(meop_ts.cast)
-        meop_ts.ds.ref.salt(:,i) = interp1(meop_ts.ref.density(~isnan(meop_ts.ref.density(:,i)),i), meop_ts.ref.salt(~isnan(meop_ts.ref.density(:,i)),i), density_grid);
-        meop_ts.ds.ref.temp(:,i) = interp1(meop_ts.ref.density(~isnan(meop_ts.ref.density(:,i)),i), meop_ts.ref.temp(~isnan(meop_ts.ref.density(:,i)),i), density_grid);
-        meop_ts.ds.ref.pres(:,i) = interp1(meop_ts.ref.density(~isnan(meop_ts.ref.density(:,i)),i), meop_ts.ref.pres(~isnan(meop_ts.ref.density(:,i)),i), density_grid);
-    end
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%%%%%%%% Calculating Density Space Variables %%%%%%%%%%%%%%%%%%
-
-    %%% Calculating absolute salinity and conservative temperature
-    meop_ts.ds.salt_absolute = gsw_SA_from_SP(meop_ts.ds.salt, meop_ts.ds.pres, meop_ts.lon, meop_ts.lat);
-    meop_ts.ds.temp_conservative = gsw_CT_from_t(meop_ts.ds.salt_absolute, meop_ts.ds.temp, meop_ts.ds.pres);
-
-    %%% Calculating Potential Density Anomaly
-    %meop_ts.ds.sigma0 = gsw_sigma0(meop_ts.ds.salt_absolute, meop_ts.ds.temp_conservative);
-
-    %%% Calculating Spice
-    meop_ts.ds.spice = gsw_spiciness0(meop_ts.ds.salt_absolute, meop_ts.ds.temp_conservative);
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%% Calculating Reference Density Space Variables %%%%%%%%%%%%%%%
-    
-    %%% Calculating absolute salinity and conservative temperature
-    meop_ts.ds.ref.salt_absolute = gsw_SA_from_SP(meop_ts.ds.ref.salt, meop_ts.ds.ref.pres, meop_ts.lon, meop_ts.lat);
-    meop_ts.ds.ref.temp_conservative = gsw_CT_from_t(meop_ts.ds.ref.salt_absolute, meop_ts.ds.ref.temp, meop_ts.ds.ref.pres);
-
-    %%% Calculating Spice
-    meop_ts.ds.ref.spice = gsw_spiciness0(meop_ts.ds.ref.salt_absolute, meop_ts.ds.ref.temp_conservative);
-
- 
-%     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%     %%%%%%%%%%%%%% Figure to see Profile vs Reference %%%%%%%%%%%%%%%%%%%%%
-%     
-%         figure()
-%         subplot(211);
-%         pcolor(datenum(meop_ts.time), depth_grid, meop_ts.temp)
-%         datetick('x', 'dd/mm');
-%         set(gca,'YDir','Reverse');
-%         shading interp
-%     
-%         subplot(212);
-%         pcolor(datenum(meop_ts.time), depth_grid, ref_meop_ts.temp)
-%         datetick('x', 'dd/mm');
-%         set(gca,'YDir','Reverse');
-%         shading interp
-
-    %     i = 1;
-    %
-    %     figure()
-    %     subplot(1,2,1);
-    %     hold on
-    %     plot(meop_ts.N2(:,i), 1:499, 'k', 'LineWidth', 2)
-    %     plot(ref_meop_ts.N2(:,i), 1:499, 'r', 'LineWidth', 2)
-    %     hold off
-    %     set(gca,'YDir','Reverse');
-    %     title('N^2')
-    %
-    %     subplot(1,2,2);
-    %     hold on
-    %     plot(meop_ts.dyn_height_anom(:,i), 1:500, 'k', 'LineWidth', 2)
-    %     plot(ref_meop_ts.dyn_height_anom(:,i), 1:500, 'r', 'LineWidth', 2)
-    %     hold off
-    %     set(gca,'YDir','Reverse');
-    %     title('Dynamic Height Anomaly')
-
-    clear ref_meop_profile meop_profile
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%% Isolating profiles to be checked for SCVs %%%%%%%%%%%%%%%%%%%
-
-    for i = 1:length(meop_ts.cast)
-        %%% Creating structure of individual MEOP profiles
-        meop_profile(i).salt = meop_ts.salt(:,i);
-        meop_profile(i).temp = meop_ts.temp(:,i);
-        meop_profile(i).dyn_height_anom = meop_ts.dyn_height_anom(:,i);
-        meop_profile(i).sigma0 = meop_ts.sigma0(:,i);
-        meop_profile(i).N2 = meop_ts.N2(:,i);
-        meop_profile(i).pres = meop_ts.pres(:,i);
-
-        meop_profile(i).ds.salt = meop_ts.ds.salt(:,i);
-        meop_profile(i).ds.temp = meop_ts.ds.temp(:,i);
-        meop_profile(i).ds.pres = meop_ts.ds.pres(:,i);
-        meop_profile(i).ds.spice = meop_ts.ds.spice(:,i);
-
-        %%% Creating structure of individual reference profiles
-        meop_profile(i).ref.salt = meop_ts.ref.salt(:,i);
-        meop_profile(i).ref.temp = meop_ts.ref.temp(:,i);
-        meop_profile(i).ref.dyn_height_anom = meop_ts.ref.dyn_height_anom(:,i);
-        meop_profile(i).ref.sigma0 = meop_ts.ref.sigma0(:,i);
-        meop_profile(i).ref.N2 = meop_ts.ref.N2(:,i);
-
-        meop_profile(i).ds.ref.salt = meop_ts.ds.ref.salt(:,i);
-        meop_profile(i).ds.ref.temp = meop_ts.ds.ref.temp(:,i);
-        meop_profile(i).ds.ref.pres = meop_ts.ds.ref.pres(:,i);
-        meop_profile(i).ds.ref.spice = meop_ts.ds.ref.spice(:,i);
-
-        %%% Calculating anomalies
-        meop_profile(i).salt_anom = meop_profile(i).salt - meop_profile(i).ref.salt;
-        meop_profile(i).temp_anom = meop_profile(i).temp - meop_profile(i).ref.temp;
-        meop_profile(i).sigma0_anom = meop_profile(i).sigma0 - meop_profile(i).ref.sigma0;
-
-        %%% Calculating anomalies
-        meop_profile(i).ds.salt_anom = meop_profile(i).ds.salt - meop_profile(i).ds.ref.salt;
-        meop_profile(i).ds.temp_anom = meop_profile(i).ds.temp - meop_profile(i).ds.ref.temp;
-        meop_profile(i).ds.spice_anom = meop_profile(i).ds.spice - meop_profile(i).ds.ref.spice;
-    end
-    %%
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%%%%%%%%%%%%% Gaussian Fit Check %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    for i = 27
-
-        % Grab amplitude and depth of max spice anomaly
-        spike.A  = max(meop_profile(i).ds.spice_anom);
-        spike.P = meop_profile(i).ds.pres(find(meop_profile(i).ds.spice_anom == spike.A));
-
-        % Get range of allowable parameters
-        prng = [-0.2:0.05:0.2];  % allow pressure peak to vary between +- 20% of height
-        arng  = [0.8:0.05:1.2];  % allow amplitude range of +- 20% of spice anomaly peak
-        hrng  = [0:10:500];     % allow height to vary  between 50 and 850m
-
-        % Set up matrix for least-squared error calculation
-        lse = nan(length(prng),length(arng),length(hrng));
-
-        % Go through all possible combinations
-        hcnt = 0; % reset h counter
-        for h = hrng
-        	hcnt = hcnt + 1; % increase 'h' counter
-        	acnt = 0;        % reset 'a' counter
-        	for a = arng
-        		acnt = acnt + 1; % increase 'a' counter
-        		pcnt = 0;        % reset 'p' counter
-        		for p = prng
-        			pcnt = pcnt + 1; % increase 'p'
-
-        			% Center Gaussian model around spike.P + p*h
-        			zo = [];
-        			zo = double(meop_profile(i).ds.pres - [spike.P + p*(4)*sqrt(h^2/2)]);
-        			sa = double(meop_profile(i).ds.spice_anom);
-
-        			% Reduce to where data exists
-        			datcheck = sa + zo;
-        			sa       = sa(~isnan(datcheck));
-        			zo       = zo(~isnan(datcheck));
-
-        			% Generate gaussian model using updated amplitude, center, and height
-        			gauss = (spike.A*a)*exp((-(zo.^2))/(h.^2));
-
-        			% Get gaussian limits for testing
-        			pl = [spike.P + p*(4)*sqrt(h^2/2)] - 2*sqrt((h^2)/2); pl  = round(pl/10)*10;
-        			ph = [spike.P + p*(4)*sqrt(h^2/2)] + 2*sqrt((h^2)/2); ph  = round(ph/10)*10;
-
-        			% Grab results
-        			zp     = [zo + spike.P + p*(4)*sqrt(h^2/2)];
-        			dataX  = meop_profile(i).ds.spice_anom(pl <= meop_profile(i).ds.pres & meop_profile(i).ds.pres <= ph);
-        			dataY  = meop_profile(i).ds.pres(pl <= meop_profile(i).ds.pres & meop_profile(i).ds.pres <= ph);
-        			modelX = gauss(pl <= zp & zp <= ph);
-        			modelY = zp(pl <= zp & zp <= ph);
-
-        			% Check that depths of model and data intersect
-        			if length(dataX) < length(modelX) | length(modelX) < length(dataX)
-        				[c,~,~] = intersect(dataY,modelY);
-        				ind     = find(min(c) <= dataY & dataY <= max(c));
-        				dataX   = dataX(ind);   dataY = dataY(ind);
-        				ind     = find(min(c) <= modelY & modelY <= max(c));
-        				modelX  = modelX(ind); modelY = modelY(ind);
-        			end
-
-        			% Calculate R^2
-        			R2(pcnt,acnt,hcnt) = corr2(dataX,modelX).^2;
-
-        			% Save least-squared error results (ignore if bad R2 value (i.e. < 0.5))
-        			if R2(pcnt,acnt,hcnt) < 0.5
-        				lse(pcnt,acnt,hcnt) = NaN;
-        			else
-        				lse(pcnt,acnt,hcnt) = sum([dataX-modelX].^2);
-        			end
-        		end
-        	end
-        end
-
-        % Find best zo,A,H combo according to lse
-        [minlse,idxlse] = min(lse(:));
-        [a,b,c] = ind2sub(size(lse),idxlse);
-
-        % Update parameters
-        results.A    = spike.A*arng(b);
-        results.H    = hrng(c);
-        results.P    = spike.P + prng(a)*(4)*sqrt(results.H^2/2);
-        results.Plow = spike.P - 2*sqrt((results.H^2)/2);
-        results.Phih = spike.P + 2*sqrt((results.H^2)/2);
-        results.Plow = round(results.Plow/10)*10;
-        results.Phih = round(results.Phih/10)*10;
-
-        % Update zo,zp,gauss for final model
-        zo    = double(meop_profile(i).ds.pres - [results.P]);
-        zp    = zo + results.P;
-        gauss = results.A*exp((-(zo.^2))/(results.H.^2));
-
-        % Save final model
-        results.X = gauss;
-        results.Y = zp;
-
-        % Plot
-        figure()
-        plot(meop_profile(i).ds.spice_anom,meop_profile(i).ds.pres,'k','linewidth',2)
-        hold on; grid on; set(gca,'YDir','Reverse')
-        plot(results.X,results.Y,'Color','Blue','LineWidth',3,'LineStyle','-.')
-        xlabel('kg/m^3')
-        ylabel('dbar');
-        set(gca,'fontsize',10,'fontname','Helvetica')
-
-    end
+% QUALITY CONTROL THRESHOLDS
+qc.min_depth    = [350]; % minimum depth to be considered a 'good' profile (350)
+qc.min_profiles = [50];   % minimum number of 'good' profiles for a timeseries (100)
+qc.max_time_gap = [5];   % max gap (days) between 'good' profiles before rejection (5)
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% REFERENCE PROFILE SETTINGS
+ref_settings.inner_window = 2;
+ref_settings.outer_window = 11;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %%%%%%%%%%%%%%%%%%%%% Dynamic Height Anomaly Check %%%%%%%%%%%%%%%%%%%%
 
-    for i = 25
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Filtering Out "Bad" Data %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-        %%% Extract vertical velocity and horizontal structure modes of climatology
-        [ref_meop_profile(i).wmodes, ref_meop_profile(i).pmodes, ~, ~] = dynmodes(ref_meop_profile(i).N2(~isnan(ref_meop_profile(i).N2)), depth_grid(~isnan(ref_meop_profile(i).N2)),1);
+%%% Identifying MEOP Profiles in the Southern Ocean (Below 60S)
+idy = find([sealdata_all.LAT] < -60);
+SO_sealdata = sealdata_all(idy);
+clear idy
 
-        %%% Grab pressure levels of mode decomposition, add zero level (surface)
-        ref_meop_profile(i).mode_pres = depth_grid(~isnan(ref_meop_profile(i).N2));
-        ref_meop_profile(i).mode_pres = [0 ref_meop_profile(i).mode_pres]';
+%%% Quality Controlling Southern Ocean MEOP Profiles (Identifying profiles
+%%% with consistent temperature and salinity quality ratings of 1 - i.e. the best rating)
 
-        % Interpolate 1st baroclinic mode to pressure of SCV cast
-        meop_profile(i).dyn_pres = depth_grid(~isnan(meop_profile(i).dyn_height_anom));
-        meop_profile(i).dyn_height_anom = meop_profile(i).dyn_height_anom(~isnan(meop_profile(i).dyn_height_anom));
-        ref_meop_profile(i).BC1_data = ref_meop_profile(i).pmodes(:,1);
-        ref_meop_profile(i).BC1_pres = ref_meop_profile(i).mode_pres;
-        ref_meop_profile(i).BC1_data = interp1(ref_meop_profile(i).mode_pres(~isnan(ref_meop_profile(i).BC1_data)),ref_meop_profile(i).BC1_data(~isnan(ref_meop_profile(i).BC1_data)),meop_profile(i).dyn_pres)';
-        ref_meop_profile(i).BC1_pres = meop_profile(i).dyn_pres';
+%%% Extracting rating data
+time_qc = NaN(length(SO_sealdata),1);
+pres_qc = cell(length(SO_sealdata),1);
+salt_qc = cell(length(SO_sealdata),1);
+temp_qc = cell(length(SO_sealdata),1);
 
-        % Create function that describes residuals between projected BC1 and dyn_height_anom
-        % Exclude data inbetween SCV limits for better fit to first mode
-        dat = [];
-        dat = [ref_meop_profile(i).BC1_data + meop_profile(i).dyn_height_anom];
-        x_o = [];
-        x_o = ref_meop_profile(i).BC1_data(~isnan(dat));
-        x_p = [];
-        x_p = ref_meop_profile(i).BC1_pres(~isnan(dat));
-        x_f = [];
-        x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
+for i = 1:length(SO_sealdata)
+    time_qc(i) = str2double(SO_sealdata(i).TIME_QC);
+    pres_qc{i,:} = str2num(SO_sealdata(i).PRES_QC);
+    salt_qc{i,:} = str2num(SO_sealdata(i).SALT_QC);
+    temp_qc{i,:} = str2num(SO_sealdata(i).TEMP_QC);
+end
 
-        %     % Get limits
-        %     pl = meop_profile(i).limits.shallow_pres;
-        %     ph = meop_profile(i).limits.deep_pres;
-        %
-        %     % Remove values between upper/lower limits of SCV to avoid bad fit
-        %     ind = [];
-        %     ind = find(pl < x_p & x_p < ph);
-        %     if ind(end) == length(x_p)
-        %         ind = ind(1:end-1);
-        %     end
-        %     x_o(ind) = [];
-        %     x_f(ind) = [];
-
-        % Remove mixed layer depths (Lynne Talley method, first density greater than 0.03 from sfc value
-        ind      = [];
-        mld_dens = meop_profile(i).sigma0(~isnan(meop_profile(i).sigma0));
-        mld_pres = meop_profile(i).pres(~isnan(meop_profile(i).sigma0));
-        ind      = find(mld_dens > mld_dens(1)+0.03);
-        mld_pres = mld_pres(ind(1));
-        ind      = find(x_p < mld_pres);
-        x_o(ind) = [];
-        x_f(ind) = [];
-
-        % f simply evaluates a given alpha (modal amplitude) and returns the
-        % difference between the input DHanom profile and the projected 1st mode
-        % We want to restrict our solutions such that the bottom of the projected
-        % profile is equal to the bottom of the DHanom profile
-        % SO let alpha2 = DHanom(end) - alpha*BT1(end)
-        f = [];
-        f = @(alpha) (alpha*x_o - x_f + (x_f(end) - alpha*x_o(end)));
-        x0  = 0.05; % First guess
-
-        % Solve for best modal amplitude
-        alpha = [];
-        alpha = lsqnonlin(f,x0,[-1],[1],opts1);
-
-        % Redfine x_o and x_f with full profile
-        x_o = ref_meop_profile(i).BC1_data(~isnan(dat));
-        x_p = ref_meop_profile(i).mode_pres(~isnan(dat));
-        x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
-
-        % Fix dynamic height anomaly by removing projected 1st mode, add back in barotopic mode
-        meop_profile(i).dyn_height_anom_BC1 = [x_f] - [x_o*alpha + (x_f(end) - alpha*x_o(end))];
-        meop_profile(i).dyn_height_pres_BC1 = meop_profile(i).dyn_pres(~isnan(dat));
-
-        % Save VMD results
-        ref_meop_profile(i).VMD.x_f      = x_f;
-        ref_meop_profile(i).VMD.x_o      = x_o;
-        ref_meop_profile(i).VMD.x_p      = x_p;
-        ref_meop_profile(i).VMD.alpha    = alpha;
-
-        % Get mode decomposition results
-        BC1 = ref_meop_profile(i).VMD.x_o*ref_meop_profile(i).VMD.alpha;
-        BC1 = BC1 - BC1(end); %// Set bottom to zero
-
-        % Plot results
-        figure();
-        subplot(131)
-        plot(-ref_meop_profile(i).pmodes(:,1),ref_meop_profile(i).mode_pres,'r','linewidth',2)
-        hold on; grid on; set(gca,'YDir','Reverse')
-        plot(ref_meop_profile(i).pmodes(:,2),ref_meop_profile(i).mode_pres,'b','linewidth',2)
-        plot(ref_meop_profile(i).pmodes(:,3),ref_meop_profile(i).mode_pres,'g','linewidth',2)
-        plot(ref_meop_profile(i).pmodes(:,4),ref_meop_profile(i).mode_pres,'y','linewidth',2)
-        plot(ref_meop_profile(i).pmodes(:,5),ref_meop_profile(i).mode_pres,'color',[0.5 0 0.5],'linewidth',2)
-        title({'\it\bf\fontsize{8}\fontname{Helvetica}Horizontal Velocity','Modes'})
-        set(gca,'XTick',[0])
-        ylabel('Pressure (dbar)')
-        [l,icons] = legend('Mode-1','Mode-2','Mode-3','Mode-4','Mode-5','location','southeast');
-        l.Box = 'off';
-
-        subplot(132)
-        plot(meop_profile(i).dyn_height_anom,meop_profile(i).dyn_pres,'k','linewidth',2)
-        hold on; grid on; set(gca,'YDir','Reverse')
-        plot(BC1,ref_meop_profile(i).VMD.x_p,':r','linewidth',2)
-        plot(meop_profile(i).dyn_height_anom_BC1,meop_profile(i).dyn_pres,':k','linewidth',2)
-        [l,icons] = legend('DH''_{orig}','BC1_{fit}','DH''_{adj}','location','southeast');
-        xlabel('m^2/s^2')
-        title({'\it\bf\fontsize{8}\fontname{Helvetica}Dynamic Height','Anomaly'})
-        set(gca,'YTickLabel',[])
-
-        subplot(133)
-        plot(meop_profile(i).sigma0 - ref_meop_profile(i).sigma0,meop_profile(i).pres,'k','linewidth',2)
-        set(gca,'YDir','Reverse')
-        grid on
-        xlim([-0.2 0.2]);
+%%% Isolating profiles with the best data
+for i = 1:length(SO_sealdata)
+    if time_qc(i) == 1
+        good_data{i,:} = find((pres_qc{i,1} == 1) & (salt_qc{i,1} == 1) & (temp_qc{i,1} == 1));
+    else 
+        good_data{i,:} = [];
     end
+end
 
+%%% Creating new structure with QC profiles
+clear SO_sealdata_qc
+u = 1;
+for i = 1:length(SO_sealdata)
+    if isempty(good_data{i,1}) == 0
+        SO_sealdata_qc(u).lat = SO_sealdata(i).LAT;
+        SO_sealdata_qc(u).lon = SO_sealdata(i).LON;
+        SO_sealdata_qc(u).time = SO_sealdata(i).TIME;
+        SO_sealdata_qc(u).pres = SO_sealdata(i).PRES(good_data{i,1});
+        SO_sealdata_qc(u).salt = SO_sealdata(i).SALT(good_data{i,1});
+        SO_sealdata_qc(u).temp = SO_sealdata(i).TEMP(good_data{i,1});
+        SO_sealdata_qc(u).tag = str2double(SO_sealdata(i).TAG);
+        u = u + 1;
+    end
+end
+
+clear time_qc pres_qc salt_qc temp_qc u i x SO_sealdata good_data
+
+%%% Extracting the max pressure that each profile reaches
+for i = 1:length(SO_sealdata_qc)
+    maxpres(i) = max(SO_sealdata_qc(i).pres);
+end
+
+%%% Removing profiles that don't go deep enough
+flagit = (maxpres >= 350);
+SO_sealdata_qc = SO_sealdata_qc(flagit);
+
+clear maxpres flagit i
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Interpolating to Uniform Pressure Grid %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+clear interp_sealdata_qc interp_salt interp_temp
+
+depth_grid = 1:10:800;
+depth_grid = depth_grid';
+
+for i = 1:length(SO_sealdata_qc)
+    interp_salt(i,:) = interp1(SO_sealdata_qc(i).pres, SO_sealdata_qc(i).salt, depth_grid);
+    interp_temp(i,:) = interp1(SO_sealdata_qc(i).pres, SO_sealdata_qc(i).temp, depth_grid);
+    interp_sealdata_qc(i) = struct('tag', SO_sealdata_qc(i).tag, 'lat',SO_sealdata_qc(i).lat,'lon',SO_sealdata_qc(i).lon, 'time', SO_sealdata_qc(i).time, 'salt', interp_salt(i,:), 'temp', interp_temp(i,:));
+end
+
+clear interp_salt interp_temp
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Organizing Data into Time Series %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+meop_data = interp_sealdata_qc;
+
+%%% Grab MEOP meta data (tag num, date) and group them into time-series
+for i = 1:length(meop_data)
+    tagnum(i)   = meop_data(i).tag; % tag num
+    profdate(i) = datenum(meop_data(i).time); % date
+end
+
+%%% Get unique tag numbers
+taglist = unique(tagnum);
+
+%%% Go through each tagnum and assign a cast number
+meop_ts = [];
+for i = 1:length(taglist)
+	%%% Find profiles with that tagnum
+	tagidx = find(tagnum == taglist(i));
+
+	%%% Start meop time-series
+	meop_ts(i).tag = taglist(i);
+
+	%%% Sort the profiles by date
+	[a,b] = sort(profdate(tagidx),'ascend');
+
+	%%% Go through all instances of the same tag and fill in the data
+	for j = 1:length(b)
+		meop_ts(i).cast(j)   = j;						  % cast number
+		meop_ts(i).lat(j)    = meop_data(tagidx(j)).lat;  % latitude
+		meop_ts(i).lon(j)    = meop_data(tagidx(j)).lon;  % longitude
+		meop_ts(i).time(j,:) = meop_data(tagidx(j)).time; % cast date
+		meop_ts(i).salt(:,j) = meop_data(tagidx(j)).salt; % salinity
+		meop_ts(i).temp(:,j) = meop_data(tagidx(j)).temp; % temperature
+	end	
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% QC FLAG (time gap) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Find where gap between casts is too large
+%%% Set up a tag modifier to separate one T-S into many
+tslist  = {'A','B','C','D','E','F','G','H',...
+		   'I','J','K','L','M','N','O','P'};
+
+%%% Set up a total time-series counter
+tscount = 1;
+for i = 1:length(meop_ts)
+	% Clear loop variables
+	ts_dates = []; didx = []; ind = []; tmpidx = [];
+	% Find difference in dates between casts
+	ts_dates = datenum(meop_ts(i).time);
+	% Find where difference exceeds QC threshold (max time between casts)
+	didx     = diff(ts_dates)<qc.max_time_gap;
+	% Find the gaps greater than QC threshold 
+	ind      = find(didx == 1); 
+	% Clear start of time-series
+	ts_start = []; ts_end = []; ts_cnt = 1;
+	if isempty(ind);
+		% No good groups found, go to next MEOP time-series
+		continue
+	elseif length(ind)==1
+		% Only one group of consecutive casts exist
+		tmpidx{ts_cnt} = [ind:ind+1];
+	else
+		% Many groups exist, separate them
+		for j = 1:length(ind);
+			if isempty(ts_start)
+				ts_start = ind(j);
+			end
+			if j < length(ind) & ismember(ind(j)+1,ind);
+				continue;
+			else
+				ts_end = ind(j)+1;
+				tmpidx{ts_cnt} = [ts_start:ts_end];
+				ts_start = []; ts_end = [];
+				ts_cnt = ts_cnt + 1;
+			end
+		end
+	end
+	% Assign 'good' consecutive casts into separate time-series	
+	for j = 1:length(tmpidx)
+		qc_ts(tscount).tag  = [num2str(meop_ts(i).tag),tslist{j}];
+		%%% Save as QC'd timeseries
+		qc_ts(tscount).cast = meop_ts(i).cast(tmpidx{j});
+		qc_ts(tscount).lat  = meop_ts(i).lat(tmpidx{j});
+		qc_ts(tscount).lon  = meop_ts(i).lon(tmpidx{j});
+		qc_ts(tscount).time = meop_ts(i).time(tmpidx{j},:);
+		qc_ts(tscount).temp = meop_ts(i).temp(:,tmpidx{j});
+		qc_ts(tscount).salt = meop_ts(i).salt(:,tmpidx{j});
+		%%% Increase counter
+		tscount = tscount + 1;
+	end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% QC FLAG (min profiles) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Find timeseries without enough profiles
+Np = [];
+for i = 1:length(qc_ts)
+	Np(i) = length(qc_ts(i).cast);
+end
+ind = find(Np < qc.min_profiles);
+qc_ts(ind) = [];
+
+clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
+    ts_end ts_start tscount tslist Np ind didx qc flagit ts_dates dbar_grid meop_ts
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Additional Variables %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = 1:length(qc_ts)
+
+    %%% Creating pressure matrix
+    qc_ts(tag_no).pres = depth_grid .* ones(size(qc_ts(tag_no).salt));
+
+    %%% Calculating absolute salinity and conservative temperature
+    qc_ts(tag_no).salt_absolute = gsw_SA_from_SP(qc_ts(tag_no).salt, depth_grid, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+    qc_ts(tag_no).temp_conservative = gsw_CT_from_t(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp, qc_ts(tag_no).pres);
+
+    %%% Calculating density
+    qc_ts(tag_no).density = gsw_rho(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative, qc_ts(tag_no).pres);
+
+    %%% Calculating Potential Density Anomaly
+    qc_ts(tag_no).sigma0 = gsw_sigma0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
+
+    %%% Calculating N^2
+    [qc_ts(tag_no).N2,~] = gsw_Nsquared(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative, qc_ts(tag_no).pres, qc_ts(tag_no).lat .* ones(size(qc_ts(tag_no).salt)));
+
+    %%% Calculating Spice
+    qc_ts(tag_no).spice = gsw_spiciness0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
 
 end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Building Reference Profiles %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+
+for tag_no = 1:100
+    
+    %%% Finding indices to use for background profile calculation
+    for i = 1:length(qc_ts(tag_no).cast)
+        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
+        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
+        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
+        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
+    
+        %%% Only considering profiles that have a complete window on both
+        %%% sides
+        if (length(mean_ind{1,i}) + length(mean_ind{2,i})) < (2*ref_settings.outer_window - ref_settings.inner_window)
+            mean_ind{1,i} = [];
+            mean_ind{2,i} = [];
+        end
+    end
+
+    %%% Creating reference profiles for each of the time series profiles
+    qc_ts(tag_no).ref_salt = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).ref_temp = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).ref_N2 = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).ref_spice = cell(1,length(qc_ts(tag_no).cast));
+
+    for i = 1:length(qc_ts(tag_no).cast)
+
+        %%% Removing NaNs from POI
+        density_grid = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
+    
+        %%% Extracting the assigned reference profiles
+        tmp_density = qc_ts(tag_no).density(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt = qc_ts(tag_no).salt(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_temp = qc_ts(tag_no).temp(:,[mean_ind{1,i} mean_ind{2,i}]);
+        %tmp_N2 = qc_ts(tag_no).N2(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_spice = qc_ts(tag_no).spice(:,[mean_ind{1,i} mean_ind{2,i}]);
+
+        if isempty(tmp_density)
+            continue 
+        end
+
+        %%% Interpolating the reference profiles to the POI's density grid
+        clear interp_tmp_salt interp_tmp_temp interp_tmp_N2 interp_tmp_spice
+
+        for j = 1:size(tmp_salt,2)
+
+            %%% Removing NaNs
+            tmp_density_prof = tmp_density(~isnan(tmp_density(:,j)),j);
+            tmp_salt_prof = tmp_salt(~isnan(tmp_salt(:,j)),j);
+            tmp_temp_prof = tmp_temp(~isnan(tmp_temp(:,j)),j);
+            %tmp_N2_prof = tmp_N2(~isnan(tmp_N2(:,j)),j);
+            tmp_spice_prof = tmp_spice(~isnan(tmp_spice(:,j)),j);
+
+            %%% Interpolating data
+            interp_tmp_salt(:,j) = interp1(tmp_density_prof, tmp_salt_prof, density_grid);
+            interp_tmp_temp(:,j) = interp1(tmp_density_prof, tmp_temp_prof, density_grid);
+            %interp_tmp_N2(:,j) = interp1(tmp_density_prof, tmp_N2_prof, density_grid);
+            interp_tmp_spice(:,j) = interp1(tmp_density_prof, tmp_spice_prof, density_grid);
+        end
+
+        qc_ts(tag_no).ref_salt{1,i} = median(interp_tmp_salt,2);
+        qc_ts(tag_no).ref_temp{1,i} = median(interp_tmp_temp,2);
+        %qc_ts(tag_no).ref_N2{1,i} = median(interp_tmp_N2,2);
+        qc_ts(tag_no).ref_spice{1,i} = median(interp_tmp_spice,2);
+
+    end
+
+end
+
+clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp...
+    tmp_N2_prof tmp_N2 tmp_spice_prof tmp_spice interp_tmp_salt interp_tmp_temp...
+    interp_tmp_N2 interp_tmp_spice j i density_grid
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Anomalies %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = 1
+
+    salt_anom = NaN(size(qc_ts(tag_no).salt));
+
+    %%% Creating reference profiles for each of the time series profiles
+    qc_ts(tag_no).salt_anom = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).temp_anom = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).N2_anom = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).spice_anom = cell(1,length(qc_ts(tag_no).cast));
+
+    for i = 1:length(qc_ts(tag_no).cast)
+
+        if isempty(qc_ts(tag_no).ref_salt{1,i})
+            continue
+        end
+
+        %%% Removing NaNs from POI
+        salt_prof = qc_ts(tag_no).salt(~isnan(qc_ts(tag_no).salt(:,i)),i);
+        temp_prof = qc_ts(tag_no).temp(~isnan(qc_ts(tag_no).temp(:,i)),i);
+        spice_prof = qc_ts(tag_no).spice(~isnan(qc_ts(tag_no).spice(:,i)),i);
+
+        %%% Calculating Anomalies
+        qc_ts(tag_no).salt_anom{1,i} = salt_prof - qc_ts(tag_no).ref_salt{1,i};
+        qc_ts(tag_no).temp_anom{1,i} = temp_prof - qc_ts(tag_no).ref_temp{1,i};
+        qc_ts(tag_no).spice_anom{1,i} = spice_prof - qc_ts(tag_no).ref_spice{1,i};
+    end
+end
+
+clear salt_prof temp_prof spice_prof
 
 
