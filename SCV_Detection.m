@@ -1,17 +1,23 @@
-
 %%% Loading MEOP data
 load("SealData_All.mat");
 
+%%% Loading bathymetry data
+RTOPO.lat = double(ncread('/Users/jenkosty/Downloads/Research/detectSCV-main/RTOPO2.nc', 'lat'));
+RTOPO.lon = double(ncread('/Users/jenkosty/Downloads/Research/detectSCV-main/RTOPO2.nc', 'lon'))';
+RTOPO.bedrock_topography = double(ncread('/Users/jenkosty/Downloads/Research/detectSCV-main/RTOPO2.nc', 'bedrock_topography'))';
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % QUALITY CONTROL THRESHOLDS
-qc.min_depth    = [350]; % minimum depth to be considered a 'good' profile (350)
-qc.min_profiles = [50];   % minimum number of 'good' profiles for a timeseries (100)
-qc.max_time_gap = [5];   % max gap (days) between 'good' profiles before rejection (5)
+qc.min_depth    = 350; % minimum depth to be considered a 'good' profile (350)
+qc.min_profiles = 50;   % minimum number of 'good' profiles for a timeseries (100)
+qc.max_time_gap = 5;   % max gap (days) between 'good' profiles before rejection (5)
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % REFERENCE PROFILE SETTINGS
 ref_settings.inner_window = 2;
 ref_settings.outer_window = 11;
+ref_settings.bathymetry_mean = 400;
+ref_settings.bathymetry_std = 400;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -74,7 +80,7 @@ for i = 1:length(SO_sealdata_qc)
 end
 
 %%% Removing profiles that don't go deep enough
-flagit = (maxpres >= 350);
+flagit = (maxpres >= qc.min_depth);
 SO_sealdata_qc = SO_sealdata_qc(flagit);
 
 clear maxpres flagit i
@@ -213,7 +219,7 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
     ts_end ts_start tscount tslist Np ind didx qc flagit ts_dates dbar_grid meop_ts
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating Additional Variables %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -239,6 +245,9 @@ for tag_no = 1:length(qc_ts)
     %%% Calculating Spice
     qc_ts(tag_no).spice = gsw_spiciness0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
 
+    %%% Calculating Bathymetry
+    qc_ts(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -257,12 +266,23 @@ for tag_no = 1:100
         mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
         mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
     
-        %%% Only considering profiles that have a complete window on both
-        %%% sides
-        if (length(mean_ind{1,i}) + length(mean_ind{2,i})) < (2*ref_settings.outer_window - ref_settings.inner_window)
-            mean_ind{1,i} = [];
-            mean_ind{2,i} = [];
+%         %%% Only considering profiles that have a complete window on both
+%         %%% sides
+%         if (length(mean_ind{1,i}) + length(mean_ind{2,i})) < (2*ref_settings.outer_window - ref_settings.inner_window)
+%             mean_ind{1,i} = [];
+%             mean_ind{2,i} = [];
+%         end
+
+        %%% Creating special reference profiles for the start and end of
+        %%% the time series
+        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
         end
+
+        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
+        end
+
     end
 
     %%% Creating reference profiles for each of the time series profiles
@@ -282,10 +302,27 @@ for tag_no = 1:100
         tmp_temp = qc_ts(tag_no).temp(:,[mean_ind{1,i} mean_ind{2,i}]);
         %tmp_N2 = qc_ts(tag_no).N2(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_spice = qc_ts(tag_no).spice(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_bathymetry = qc_ts(tag_no).bathymetry(:,[mean_ind{1,i} mean_ind{2,i}]);
 
         if isempty(tmp_density)
             continue 
         end
+        
+%         %%%%%%%%%%%%%%%%%%%%%%%%
+%         %%% Bathymetry Check %%%
+%         %%%%%%%%%%%%%%%%%%%%%%%%
+% 
+%         %%% Checking each profile against assigned background profile
+%         bathymetry_change = abs(qc_ts(tag_no).bathymetry(i) - mean(tmp_bathymetry));
+% 
+%         %%% Flagging profiles for removal based on bathymetry check
+%         if ((bathymetry_change > ref_settings.bathymetry_mean) || (std(tmp_bathymetry) > ref_settings.bathymetry_mean))
+%             qc_ts(tag_no).ref_salt{1,i} = [];
+%             qc_ts(tag_no).ref_temp{1,i} = [];
+%             qc_ts(tag_no).ref_N2{1,i} = [];
+%             qc_ts(tag_no).ref_spice{1,i} = [];
+%             continue
+%         end
 
         %%% Interpolating the reference profiles to the POI's density grid
         clear interp_tmp_salt interp_tmp_temp interp_tmp_N2 interp_tmp_spice
@@ -325,11 +362,9 @@ clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp
 %%% Calculating Anomalies %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1
+for tag_no = 1:100
 
-    salt_anom = NaN(size(qc_ts(tag_no).salt));
-
-    %%% Creating reference profiles for each of the time series profiles
+    %%% Creating anomaly profiles for each of the time series profiles
     qc_ts(tag_no).salt_anom = cell(1,length(qc_ts(tag_no).cast));
     qc_ts(tag_no).temp_anom = cell(1,length(qc_ts(tag_no).cast));
     qc_ts(tag_no).N2_anom = cell(1,length(qc_ts(tag_no).cast));
@@ -354,5 +389,206 @@ for tag_no = 1
 end
 
 clear salt_prof temp_prof spice_prof
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%%%%%%%%%%%%%%%%%
+%%% IQR Check %%%
+%%%%%%%%%%%%%%%%%
+
+for tag_no = 1
+
+    %%% Finding indices to use for background profile calculation
+    clear mean_ind
+    for i = 1:length(qc_ts(tag_no).cast)
+        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
+        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
+        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
+        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
+
+        %%% Creating special reference profiles for the start and end of
+        %%% the time series
+        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
+        end
+
+        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
+        end
+
+    end
+
+    %%% Creating iqr profiles for each of the time series profiles
+    qc_ts(tag_no).salt_iqr = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).temp_iqr = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).N2_iqr = cell(1,length(qc_ts(tag_no).cast));
+    qc_ts(tag_no).spice_iqr = cell(1,length(qc_ts(tag_no).cast));
+
+    for i = 1:length(qc_ts(tag_no).cast)
+
+        %%% Removing NaNs from POI
+        density_grid = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
+
+        %%% Extracting the assigned anomaly profiles
+        tmp_density = qc_ts(tag_no).density(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt = qc_ts(tag_no).salt_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_temp = qc_ts(tag_no).temp_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        %tmp_N2 = qc_ts(tag_no).N2_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_spice = qc_ts(tag_no).spice_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+
+        %%% Interpolating the anomaly profiles to the POI's density grid
+        clear interp_tmp_salt interp_tmp_temp interp_tmp_N2 interp_tmp_spice
+
+        for j = 1:size(tmp_salt,2)
+
+            %%% Removing NaNs
+            tmp_density_prof = tmp_density(~isnan(tmp_density(:,j)),j);
+            tmp_salt_prof = tmp_salt{1,j};
+            tmp_density_prof = tmp_density_prof(~isnan(tmp_salt_prof(:)));
+            tmp_salt_prof = tmp_salt_prof(~isnan(tmp_salt_prof));
+            tmp_temp_prof = tmp_temp{1,j};
+            tmp_temp_prof = tmp_temp_prof(~isnan(tmp_temp_prof));
+            %tmp_N2_prof = tmp_N2(~isnan(tmp_N2(:,j)),j);
+            tmp_spice_prof = tmp_spice{1,j};
+            tmp_spice_prof = tmp_spice_prof(~isnan(tmp_spice_prof));
+
+            %%% Interpolating data
+            interp_tmp_salt(:,j) = interp1(tmp_density_prof, tmp_salt_prof, density_grid);
+            interp_tmp_temp(:,j) = interp1(tmp_density_prof, tmp_temp_prof, density_grid);
+            %interp_tmp_N2(:,j) = interp1(tmp_density_prof, tmp_N2_prof, density_grid);
+            interp_tmp_spice(:,j) = interp1(tmp_density_prof, tmp_spice_prof, density_grid);
+        end
+
+        %%% Calculating IQR
+        qc_ts(tag_no).salt_iqr{1,i} = std(interp_tmp_salt,0,2);
+        qc_ts(tag_no).temp_iqr{1,i} = std(interp_tmp_temp,0,2);
+        %qc_ts(tag_no).N2_iqr{1,i} = iqr(tmp_N2,2);
+        qc_ts(tag_no).spice_iqr{1,i} = std(interp_tmp_spice,0,2);
+    end
+end
+%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+hold on
+p = pcolor(datenum(qc_ts(tag_no).time),qc_ts(tag_no).pres, qc_ts(tag_no).spice);
+set(p, 'EdgeColor', 'none');
+set(gca, 'YDir','reverse');
+set(gca, 'Layer','top');
+center_date = qc_ts(tag_no).time(55,:);
+xline(datenum(center_date), 'red', 'LineWidth', 2)
+datetick('x', 'mm/dd');
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Gaussian Fit Check %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = 1
+
+    for i = 60
+        ds_pres = qc_ts(tag_no).pres(~isnan(qc_ts(tag_no).density(:,i)),i);
+        ds_spice_anom = qc_ts(tag_no).spice_anom{1,i};
+
+        % Grab amplitude and depth of max spice anomaly
+        spike.A  = max(ds_spice_anom);
+        spike.P = ds_pres(find(ds_spice_anom == spike.A));
+
+        % Get range of allowable parameters
+        prng = [-0.2:0.05:0.2];  % allow pressure peak to vary between +- 20% of height
+        arng  = [0.8:0.05:1.2];  % allow amplitude range of +- 20% of spice anomaly peak
+        hrng  = [10:10:500];     % allow height to vary  between 50 and 850m
+
+        % Set up matrix for least-squared error calculation
+        lse = nan(length(prng),length(arng),length(hrng));
+
+        % Go through all possible combinations
+        hcnt = 0; % reset h counter
+        for h = hrng
+            hcnt = hcnt + 1; % increase 'h' counter
+            acnt = 0;        % reset 'a' counter
+            for a = arng
+                acnt = acnt + 1; % increase 'a' counter
+                pcnt = 0;        % reset 'p' counter
+                for p = prng
+                    pcnt = pcnt + 1; % increase 'p'
+
+                    % Center Gaussian model around spike.P + p*h
+                    zo = [];
+                    zo = double(ds_pres - [spike.P + p*(4)*sqrt(h^2/2)]);
+                    sa = double(ds_spice_anom);
+
+                    % Reduce to where data exists
+                    datcheck = sa + zo;
+                    sa       = sa(~isnan(datcheck));
+                    zo       = zo(~isnan(datcheck));
+
+                    % Generate gaussian model using updated amplitude, center, and height
+                    gauss = (spike.A*a)*exp((-(zo.^2))/(h.^2));
+
+                    % Get gaussian limits for testing
+                    pl = [spike.P + p*(4)*sqrt(h^2/2)] - 2*sqrt((h^2)/2); pl  = round(pl/10)*10;
+                    ph = [spike.P + p*(4)*sqrt(h^2/2)] + 2*sqrt((h^2)/2); ph  = round(ph/10)*10;
+
+                    % Grab results
+                    zp     = [zo + spike.P + p*(4)*sqrt(h^2/2)];
+                    dataX  = ds_spice_anom(pl <= ds_pres & ds_pres <= ph);
+                    dataY  = ds_pres(pl <= ds_pres & ds_pres <= ph);
+                    modelX = gauss(pl <= zp & zp <= ph);
+                    modelY = zp(pl <= zp & zp <= ph);
+
+                    % Check that depths of model and data intersect
+                    if length(dataX) < length(modelX) | length(modelX) < length(dataX)
+                        [c,~,~] = intersect(dataY,modelY);
+                        ind     = find(min(c) <= dataY & dataY <= max(c));
+                        dataX   = dataX(ind);   dataY = dataY(ind);
+                        ind     = find(min(c) <= modelY & modelY <= max(c));
+                        modelX  = modelX(ind); modelY = modelY(ind);
+                    end
+
+                    % Calculate R^2
+                    R2(pcnt,acnt,hcnt) = corr2(dataX,modelX).^2;
+
+                    % Save least-squared error results (ignore if bad R2 value (i.e. < 0.5))
+                    if R2(pcnt,acnt,hcnt) < 0.5
+                        lse(pcnt,acnt,hcnt) = NaN;
+                    else
+                        lse(pcnt,acnt,hcnt) = sum([dataX-modelX].^2);
+                    end
+                end
+            end
+        end
+
+        % Find best zo,A,H combo according to lse
+        [minlse,idxlse] = min(lse(:));
+        [a,b,c] = ind2sub(size(lse),idxlse);
+
+        % Update parameters
+        results.A    = spike.A*arng(b);
+        results.H    = hrng(c);
+        results.P    = spike.P + prng(a)*(4)*sqrt(results.H^2/2);
+        results.Plow = spike.P - 2*sqrt((results.H^2)/2);
+        results.Phih = spike.P + 2*sqrt((results.H^2)/2);
+        results.Plow = round(results.Plow/10)*10;
+        results.Phih = round(results.Phih/10)*10;
+
+        % Update zo,zp,gauss for final model
+        zo    = double(ds_pres - [results.P]);
+        zp    = zo + results.P;
+        gauss = results.A*exp((-(zo.^2))/(results.H.^2));
+
+        % Save final model
+        results.X = gauss;
+        results.Y = zp;
+
+        % Plot
+        figure()
+        plot(ds_spice_anom,ds_pres,'k','linewidth',2)
+        hold on; grid on; set(gca,'YDir','Reverse')
+        plot(results.X,results.Y,'Color','Blue','LineWidth',3,'LineStyle','-.')
+        xlabel('kg/m^3')
+        ylabel('dbar');
+        set(gca,'fontsize',10,'fontname','Helvetica')
+    end
+end
 
