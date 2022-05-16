@@ -229,7 +229,7 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Additional Variables %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1:10
+for tag_no = 1:100
 
     %%% Creating pressure matrix
     qc_ts(tag_no).pres = depth_grid .* ones(size(qc_ts(tag_no).salt));
@@ -239,7 +239,7 @@ for tag_no = 1:10
     qc_ts(tag_no).temp_conservative = gsw_CT_from_t(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp, qc_ts(tag_no).pres);
 
     %%% Calculating density
-    qc_ts(tag_no).density = gsw_rho(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative, qc_ts(tag_no).pres);
+    qc_ts(tag_no).density = gsw_rho(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative, zeros(size(qc_ts(tag_no).salt)));
 
     %%% Calculating Potential Density Anomaly
     qc_ts(tag_no).sigma0 = gsw_sigma0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
@@ -267,7 +267,7 @@ clear N2 mid_pres
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 
-for tag_no = 1 %:10
+for tag_no = 1:100
     
     %%% Finding indices to use for background profile calculation
     for i = 1:length(qc_ts(tag_no).cast)
@@ -294,7 +294,7 @@ for tag_no = 1 %:10
     qc_ts(tag_no).ref_N2 = NaN(size(qc_ts(tag_no).N2));
     qc_ts(tag_no).ref_spice = NaN(size(qc_ts(tag_no).spice));
 
-    for i = 1:length(qc_ts(tag_no).cast)
+    for i =  1:length(qc_ts(tag_no).cast)
 
         %%% Removing NaNs from POI
         density_grid = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
@@ -365,7 +365,7 @@ clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp
 %%% Calculating Anomalies %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1:10
+for tag_no = 1:100
 
     %%% Creating anomaly profiles for each of the time series profiles
     qc_ts(tag_no).salt_anom = NaN(size(qc_ts(tag_no).salt));
@@ -375,16 +375,6 @@ for tag_no = 1:10
 
     for i = 1:length(qc_ts(tag_no).cast)
 
-%         if isempty(qc_ts(tag_no).ref_salt(:,i))
-%             continue
-%         end
-
-%         %%% Removing NaNs from POI
-%         salt_prof = qc_ts(tag_no).salt(~isnan(qc_ts(tag_no).salt(:,i)),i);
-%         temp_prof = qc_ts(tag_no).temp(~isnan(qc_ts(tag_no).temp(:,i)),i);
-%         N2_prof = qc_ts(tag_no).N2(~isnan(qc_ts(tag_no).density(:,i)),i);
-%         spice_prof = qc_ts(tag_no).spice(~isnan(qc_ts(tag_no).spice(:,i)),i);
-
         %%% Calculating Anomalies
         qc_ts(tag_no).salt_anom(:,i) = qc_ts(tag_no).salt(:,i) - qc_ts(tag_no).ref_salt(:,i);
         qc_ts(tag_no).temp_anom(:,i) = qc_ts(tag_no).temp(:,i) - qc_ts(tag_no).ref_temp(:,i);
@@ -393,7 +383,6 @@ for tag_no = 1:10
     end
 end
 
-clear salt_prof temp_prof spice_prof N2_prof
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -401,7 +390,7 @@ clear salt_prof temp_prof spice_prof N2_prof
 %%% Calculating IQR %%%
 %%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1
+for tag_no = 1:100
 
     %%% Finding indices to use for background profile calculation
     clear mean_ind
@@ -430,12 +419,8 @@ for tag_no = 1
 
     for i = 1:length(qc_ts(tag_no).cast)
 
-        %%% Removing NaNs from POI
-        density_grid = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
-
         %%% Extracting the assigned anomaly profiles
         tmp_density = qc_ts(tag_no).density(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_N2 = qc_ts(tag_no).N2(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_salt_anom = qc_ts(tag_no).salt_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_temp_anom = qc_ts(tag_no).temp_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_N2_anom = qc_ts(tag_no).N2_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
@@ -446,24 +431,14 @@ for tag_no = 1
 
         for j = 1:size(tmp_salt_anom,2)
 
-%             %%% Removing NaNs
-%             tmp_density_prof = tmp_density(~isnan(tmp_density(:,j)),j);
-%             tmp_salt_anom_prof = tmp_salt_anom{1,j};
-%             tmp_density_prof = tmp_density_prof(~isnan(tmp_salt_anom_prof(:)));
-%             tmp_salt_anom_prof = tmp_salt_anom_prof(~isnan(tmp_salt_anom_prof));
-%             tmp_temp_anom_prof = tmp_temp_anom{1,j};
-%             tmp_temp_anom_prof = tmp_temp_anom_prof(~isnan(tmp_temp_anom_prof));
-% %             tmp_N2_anom_prof = tmp_N2_anom{1,j};
-% %             tmp_density_prof_N2 = tmp_density(~isnan(tmp_N2(:,j)),j);
-% %             tmp_N2_anom_prof = tmp_N2_anom_prof(~isnan(tmp_N2_anom_prof));
-%             tmp_spice_anom_prof = tmp_spice_anom{1,j};
-%             tmp_spice_anom_prof = tmp_spice_anom_prof(~isnan(tmp_spice_anom_prof));
-% 
-%             %%% Interpolating data
-%             interp_tmp_salt_anom(:,j) = interp1(tmp_density_prof, tmp_salt_anom_prof, density_grid);
-%             interp_tmp_temp_anom(:,j) = interp1(tmp_density_prof, tmp_temp_anom_prof, density_grid);
-%             %interp_tmp_N2_anom(:,j) = interp1(tmp_density_prof_N2, tmp_N2_anom_prof, density_grid);
-%             interp_tmp_spice_anom(:,j) = interp1(tmp_density_prof, tmp_spice_anom_prof, density_grid);
+            if length(tmp_salt_anom(~isnan(tmp_density(:,j)) & ~isnan(tmp_salt_anom(:,j)),j)) < 2 || length(tmp_N2_anom(~isnan(tmp_density(:,j)) & ~isnan(tmp_N2_anom(:,j)),j)) < 2
+                interp_tmp_salt_anom(:,j) = NaN(size(qc_ts(tag_no).density(:,i)));
+                interp_tmp_temp_anom(:,j) = NaN(size(qc_ts(tag_no).density(:,i)));
+                interp_tmp_N2_anom(:,j) = NaN(size(qc_ts(tag_no).density(:,i)));
+                interp_tmp_spice_anom(:,j) = NaN(size(qc_ts(tag_no).density(:,i)));
+
+                continue
+            end
 
             %%% Interpolating data
             interp_tmp_salt_anom(:,j) = interp1(tmp_density(~isnan(tmp_density(:,j)) & ~isnan(tmp_salt_anom(:,j)),j), tmp_salt_anom(~isnan(tmp_density(:,j)) & ~isnan(tmp_salt_anom(:,j)),j), qc_ts(tag_no).density(:,i));
@@ -494,7 +469,7 @@ for tag_no = 1
     end
 end
 
-clear density_grid interp_tmp_spice_anom interp_tmp_salt_anom interp_tmp_temp_anom j i tmp_density tmp_density_prof tmp_salt_anom tmp_salt_anom_prof ...
+clear density_grid interp_tmp_spice_anom interp_tmp_salt_anom interp_tmp_temp_anom interp_tmp_N2_anom j i tmp_density tmp_density_prof tmp_salt_anom tmp_salt_anom_prof ...
     tmp_spice_anom tmp_spice_anom_prof tmp_temp_anom tmp_temp_anom_prof tmp_N2_anom tmp_N2_anom_prof
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -503,70 +478,116 @@ clear density_grid interp_tmp_spice_anom interp_tmp_salt_anom interp_tmp_temp_an
 %%% IQR Check %%%
 %%%%%%%%%%%%%%%%%
 
-for tag_no = 1
-    u = 1;
+for tag_no = 1:100
     z = 1;
-
+    u = 1;
     qc_ts(tag_no).pot_scv = [];
 
     for i = 1:length(qc_ts(tag_no).cast)
-        %gt = sum(double(qc_ts(tag_no).N2_anom(:,i) > qc_ts(tag_no).N2_anom_lim_hi(:,i)));
-        lt = sum(double(qc_ts(tag_no).N2_anom(:,i) < qc_ts(tag_no).N2_anom_lim_lo(:,i)));
+        pres_levels = qc_ts(tag_no).pres(:,i) > iqr_settings.min_pres;
+        lt = sum(double(qc_ts(tag_no).N2_anom(pres_levels,i) < qc_ts(tag_no).N2_anom_lim_lo(pres_levels,i)));
+        gt = sum(double(qc_ts(tag_no).N2_anom(pres_levels,i) > qc_ts(tag_no).N2_anom_lim_hi(pres_levels,i)));
         
-%         if gt > iqr_settings.density_levels
-%             qc_ts(tag_no).pot_spice_prof(u) = i;
-%             u = u + 1;
         if lt > iqr_settings.density_levels
-            qc_ts(tag_no).pot_scv(z) = i;
+            qc_ts(tag_no).pot_anticyclones(z) = i;
             z = z + 1;
+        elseif gt > iqr_settings.density_levels
+            qc_ts(tag_no).pot_cyclones(u) = i;
         end
+
     end
 end
 
-
+clear u z pres_levels lt i  
 
 %%
+isopycnals = 0.01;
 
-for i = qc_ts(tag_no).pot_scv
+tag_no = 63;
 
-figure()
-subplot(121)
+figure('Renderer', 'painters', 'Position', [0 0 1000 950])
+sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
+
+ts_density = gsw_rho(qc_ts(tag_no).salt, qc_ts(tag_no).temp, ones(size(qc_ts(tag_no).salt,1), size(qc_ts(tag_no).salt,2)));
+
+%%% Bathymetry Subplot
+ax1 = subplot(3,1,1);
 hold on
-plot(qc_ts(tag_no).N2(:,i), qc_ts(tag_no).pres(:,i), 'k', 'DisplayName', 'Profile')
-plot(qc_ts(tag_no).ref_N2(:,i), qc_ts(tag_no).pres(:,i), 'r', 'DisplayName', 'Reference');
-hold off
-xlabel('N^2');
-ylabel('Pressure')
-ylim([0 max(qc_ts(tag_no).pres(~isnan(qc_ts(tag_no).N2_anom(:,i)),i))])
-set(gca, 'YDir', 'reverse')
-legend();
-
-
-subplot(122)
-hold on
-plot(qc_ts(tag_no).N2_anom(:,i), qc_ts(tag_no).pres(:,i), 'k', 'DisplayName', 'Profile Anomaly');
-plot(qc_ts(tag_no).N2_anom_lim_lo(:,i), qc_ts(tag_no).pres(:,i), 'b', 'DisplayName', 'Lower Threshold');
-plot(qc_ts(tag_no).N2_anom_lim_hi(:,i), qc_ts(tag_no).pres(:,i), 'r', 'DisplayName', 'UpperThreshold');
-hold off
-xlabel('N^2 Anomaly');
-ylabel('Pressure')
-ylim([0 max(qc_ts(tag_no).pres(~isnan(qc_ts(tag_no).N2_anom(:,i)),i))])
-set(gca, 'YDir', 'reverse')
-legend();
-
-pause
-
-close all
-
-end
-
-figure()
-hold on
-contourf(datenum(qc_ts(tag_no).time),qc_ts(tag_no).pres(:,1), qc_ts(tag_no).temp);
-for i = qc_ts(tag_no).pot_scv
+plot(datenum(qc_ts(tag_no).time), qc_ts(tag_no).bathymetry)
+for i = qc_ts(tag_no).pot_anticyclones
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
 end
+for i = qc_ts(tag_no).pot_cyclones
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
+end
 hold off
+xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
+datetick('x', 'mm/dd/yy', 'keepticks');
+ylabel('Depth (m)','FontSize',12);
+title('Bedrock Topography','FontSize', 12);
+
+%%% Temperature Subplot
+ax2 = subplot(3,1,2);
+hold on
+[~,IB] = unique(datenum(qc_ts(tag_no).time));
+pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).pres(:,1), qc_ts(tag_no).temp(:,IB));
+set(pp, 'EdgeColor', 'none');
+[C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, ts_density(:,IB), round(min(min(qc_ts(tag_no).density)):isopycnals:max(max(qc_ts(tag_no).density)), 2), 'k');
+clabel(C,h,'LabelSpacing',500);
+for i = qc_ts(tag_no).pot_anticyclones
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
+end
+for i = qc_ts(tag_no).pot_cyclones
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
+end
+hold off
+cmap = cmocean('thermal');
+colormap(ax2, cmap);
+colorbar;
+caxis([min(min(qc_ts(tag_no).temp)) max(max(qc_ts(tag_no).temp))])
 set(gca, 'YDir','reverse');
 set(gca, 'Layer','top');
-datetick('x', 'mm/dd');
+xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
+datetick('x', 'mm/dd/yy', 'keepticks');
+ylabel('Pressure (dbar)', 'FontSize', 12);
+ylim([0 500])
+title('Temperature', 'FontSize', 12);
+
+%%% Salinity Subplot
+ax3 = subplot(3,1,3);
+hold on
+[~,IB] = unique(datenum(qc_ts(tag_no).time));
+pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).pres(:,1), qc_ts(tag_no).salt(:,IB));
+set(pp, 'EdgeColor', 'none');
+[C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).density(:,IB), round(min(min(qc_ts(tag_no).density)):isopycnals:max(max(qc_ts(tag_no).density)), 2), 'k');
+clabel(C,h,'LabelSpacing',500);
+for i = qc_ts(tag_no).pot_anticyclones
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
+end
+for i = qc_ts(tag_no).pot_cyclones
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
+end
+hold off
+cmap = cmocean('haline');
+colormap(ax3, cmap);
+colorbar;
+caxis([min(min(qc_ts(tag_no).salt)) max(max(qc_ts(tag_no).salt))])
+set(gca, 'YDir','reverse');
+set(gca, 'Layer','top');
+xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
+datetick('x', 'mm/dd/yy', 'keepticks');
+ylabel('Pressure (dbar)', 'FontSize', 12);
+ylim([0 500])
+title('Salinity', 'FontSize', 12);
+
+p1 = get(ax1, 'Position');
+p2 = get(ax2, 'Position');
+p3 = get(ax3, 'Position');
+
+p2(3) = p1(3);
+p3(3) = p1(3);
+
+set(ax2, 'Position', p2);
+set(ax3, 'Position', p3);
+
+clear ax1 ax2 ax3 C h cmap fig i h IB isopycnals p1 p2 p3 pp
