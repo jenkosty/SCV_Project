@@ -14,15 +14,19 @@ qc.max_time_gap = 5;   % max gap (days) between 'good' profiles before rejection
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % REFERENCE PROFILE SETTINGS
-ref_settings.inner_window = 2;
-ref_settings.outer_window = 11;
+ref_settings.inner_window = 0;
+ref_settings.outer_window = 15; %%% number of days away from profile of interest
 ref_settings.bathymetry_mean = 400;
 ref_settings.bathymetry_std = 400;
+ref_settings.no_profiles = 20;
+ref_settings.bottom_depth = 350; %%% depth at which there must be at least x # profiles (bottom-up approach)
+ref_settings.top_depth = 100; %%% depth at which there must still be at least x # profiles
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IQR CHECK SETTINGS
 iqr_settings.density_levels = 3;
 iqr_settings.min_pres = 100;
+iqr_settings.no_profiles = 20;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -229,7 +233,7 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Additional Variables %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1:100
+for tag_no = 1:10
 
     %%% Creating pressure matrix
     qc_ts(tag_no).pres = depth_grid .* ones(size(qc_ts(tag_no).salt));
@@ -261,30 +265,34 @@ end
 clear N2 mid_pres
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Building Reference Profiles %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
 
-for tag_no = 1:100
+for tag_no = 1%:10
     
+    mean_ind = cell(2,length(qc_ts(tag_no).cast));
+    prof_dates = datenum(qc_ts(tag_no).time);
+    u = 1;
+
     %%% Finding indices to use for background profile calculation
-    for i = 1:length(qc_ts(tag_no).cast)
-        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
-        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
-        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
-        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
+    for i = prof_dates'
+
+        mean_ind(1,u) = {find(prof_dates < i & prof_dates > i-ref_settings.outer_window)'};
+        mean_ind(2,u) = {find(prof_dates > i & prof_dates < i+ref_settings.outer_window)'};
 
         %%% Creating special reference profiles for the start and end of
         %%% the time series
-        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
-        end
+%         if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+%             mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
+%         end
+% 
+%         if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+%             mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
+%         end
 
-        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
-        end
+        u = u + 1;
 
     end
 
@@ -294,12 +302,9 @@ for tag_no = 1:100
     qc_ts(tag_no).ref_N2 = NaN(size(qc_ts(tag_no).N2));
     qc_ts(tag_no).ref_spice = NaN(size(qc_ts(tag_no).spice));
 
-    for i =  1:length(qc_ts(tag_no).cast)
-
-        %%% Removing NaNs from POI
-        density_grid = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
+    for i = 1:length(qc_ts(tag_no).cast)
     
-        %%% Extracting the assigned reference profiles
+        %%% Extracting the profiles to build the reference profile
         tmp_density = qc_ts(tag_no).density(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_salt = qc_ts(tag_no).salt(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_temp = qc_ts(tag_no).temp(:,[mean_ind{1,i} mean_ind{2,i}]);
@@ -307,31 +312,10 @@ for tag_no = 1:100
         tmp_spice = qc_ts(tag_no).spice(:,[mean_ind{1,i} mean_ind{2,i}]);
         tmp_bathymetry = qc_ts(tag_no).bathymetry(:,[mean_ind{1,i} mean_ind{2,i}]);
 
-        if isempty(tmp_density)
-            continue 
-        end
-        
-%         %%%%%%%%%%%%%%%%%%%%%%%%
-%         %%% Bathymetry Check %%%
-%         %%%%%%%%%%%%%%%%%%%%%%%%
-% 
-%         %%% Checking each profile against assigned background profile
-%         bathymetry_change = abs(qc_ts(tag_no).bathymetry(i) - mean(tmp_bathymetry));
-% 
-%         %%% Flagging profiles for removal based on bathymetry check
-%         if ((bathymetry_change > ref_settings.bathymetry_mean) || (std(tmp_bathymetry) > ref_settings.bathymetry_mean))
-%             qc_ts(tag_no).ref_salt{1,i} = [];
-%             qc_ts(tag_no).ref_temp{1,i} = [];
-%             qc_ts(tag_no).ref_N2{1,i} = [];
-%             qc_ts(tag_no).ref_spice{1,i} = [];
-%             continue
-%         end
-
         %%% Interpolating the reference profiles to the POI's density grid
         clear interp_tmp_salt interp_tmp_temp interp_tmp_N2 interp_tmp_spice
 
         for j = 1:size(tmp_salt,2)
-
             %%% Removing NaNs
             tmp_density_prof = tmp_density(~isnan(tmp_density(:,j)),j);
             tmp_salt_prof = tmp_salt(~isnan(tmp_salt(:,j)),j);
@@ -347,17 +331,33 @@ for tag_no = 1:100
             interp_tmp_spice(:,j) = interp1(tmp_density_prof, tmp_spice_prof, qc_ts(tag_no).density(:,i));
         end
 
-        qc_ts(tag_no).ref_salt(:,i) = median(interp_tmp_salt,2);
-        qc_ts(tag_no).ref_temp(:,i) = median(interp_tmp_temp,2);
-        qc_ts(tag_no).ref_N2(:,i) = median(interp_tmp_N2,2);
-        qc_ts(tag_no).ref_spice(:,i) = median(interp_tmp_spice,2);
-
+        %%% Checking data coverage at each depth level
+        for j = length(depth_grid):-1:1
+            good_prof(j,:) = {find(~isnan(interp_tmp_spice(j,:)) & ~isnan(interp_tmp_N2(j,:)))};
+            length_check(j) = length(good_prof{j,1}) > ref_settings.no_profiles;
+        end
+        
+        %%% Only building reference profiles if there is enough coverage
+        if min(depth_grid(length_check)) < ref_settings.top_depth & max(depth_grid(length_check)) > ref_settings.bottom_depth %%% Checking min/max depths
+            data = good_prof(length_check,:);
+            depth_data = depth_grid(length_check);
+            last_ind = find(depth_data < ref_settings.top_depth, 1, 'last');
+            overlap = intersect(data{last_ind,1}, data{end,1}); %%% Checking number of consistent profiles over depth range
+            if length(overlap) > ref_settings.no_profiles %%% Generating reference profiles for those that meet the requirements
+                qc_ts(tag_no).ref_salt(:,i) = median(interp_tmp_salt(:,overlap),2);
+                qc_ts(tag_no).ref_temp(:,i) = median(interp_tmp_temp(:,overlap),2);
+                qc_ts(tag_no).ref_N2(:,i) = median(interp_tmp_N2(:,overlap),2);
+                qc_ts(tag_no).ref_spice(:,i) = median(interp_tmp_spice(:,overlap),2);
+            end
+        end
     end
+
 end
 
 clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp...
     tmp_N2_prof tmp_N2 tmp_density_prof_N2 tmp_spice_prof tmp_spice interp_tmp_salt interp_tmp_temp...
-    interp_tmp_N2 interp_tmp_spice j i density_grid tmp_bathymetry
+    interp_tmp_N2 interp_tmp_spice j i density_grid tmp_bathymetry u prof_dates good_prof top_data bottom_data...
+    depth_check  depth_data last_ind length_check overlap data
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -365,7 +365,7 @@ clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp
 %%% Calculating Anomalies %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1:100
+for tag_no = 1%:100
 
     %%% Creating anomaly profiles for each of the time series profiles
     qc_ts(tag_no).salt_anom = NaN(size(qc_ts(tag_no).salt));
@@ -390,25 +390,20 @@ end
 %%% Calculating IQR %%%
 %%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = 1:100
+for tag_no = 1%:100
+
+    mean_ind = cell(2,length(qc_ts(tag_no).cast));
+    prof_dates = datenum(qc_ts(tag_no).time);
+    u = 1;
 
     %%% Finding indices to use for background profile calculation
-    clear mean_ind
-    for i = 1:length(qc_ts(tag_no).cast)
-        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
-        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
-        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
-        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
+    for i = prof_dates'
 
-        %%% Creating special reference profiles for the start and end of
-        %%% the time series
-        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
-        end
+        mean_ind(1,u) = {find(prof_dates < i & prof_dates > i-ref_settings.outer_window)'};
+        mean_ind(2,u) = {find(prof_dates > i & prof_dates < i+ref_settings.outer_window)'};
 
-        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
-        end
+        u = u + 1;
+
     end
 
     %%% Creating iqr profiles for each of the time series profiles
@@ -417,7 +412,20 @@ for tag_no = 1:100
     qc_ts(tag_no).N2_anom_iqr = NaN(size(qc_ts(tag_no).N2));
     qc_ts(tag_no).spice_anom_iqr = NaN(size(qc_ts(tag_no).spice));
 
-    for i = 1:length(qc_ts(tag_no).cast)
+    %%% Creating lower iqr limit profiles for each of the time series profiles
+    qc_ts(tag_no).salt_anom_lim_lo = NaN(size(qc_ts(tag_no).salt));
+    qc_ts(tag_no).temp_anom_lim_lo = NaN(size(qc_ts(tag_no).temp));
+    qc_ts(tag_no).N2_anom_lim_lo = NaN(size(qc_ts(tag_no).N2));
+    qc_ts(tag_no).spice_anom_lim_lo = NaN(size(qc_ts(tag_no).spice));
+
+    %%% Creating upper iqr limit profiles for each of the time series profiles
+    qc_ts(tag_no).salt_anom_lim_hi = NaN(size(qc_ts(tag_no).salt));
+    qc_ts(tag_no).temp_anom_lim_hi = NaN(size(qc_ts(tag_no).temp));
+    qc_ts(tag_no).N2_anom_lim_hi = NaN(size(qc_ts(tag_no).N2));
+    qc_ts(tag_no).spice_anom_lim_hi = NaN(size(qc_ts(tag_no).spice));
+
+
+    for i = 8%1:length(qc_ts(tag_no).cast)
 
         %%% Extracting the assigned anomaly profiles
         tmp_density = qc_ts(tag_no).density(:,[mean_ind{1,i} mean_ind{2,i}]);
@@ -447,41 +455,55 @@ for tag_no = 1:100
             interp_tmp_spice_anom(:,j) = interp1(tmp_density(~isnan(tmp_density(:,j)) & ~isnan(tmp_spice_anom(:,j)),j), tmp_spice_anom(~isnan(tmp_density(:,j)) & ~isnan(tmp_spice_anom(:,j)),j), qc_ts(tag_no).density(:,i));
         end
 
-        %%% Calculating IQR
-        qc_ts(tag_no).salt_anom_iqr(:,i) = iqr(interp_tmp_salt_anom,2);
-        qc_ts(tag_no).temp_anom_iqr(:,i) = iqr(interp_tmp_temp_anom,2);
-        qc_ts(tag_no).N2_anom_iqr(:,i) = iqr(interp_tmp_N2_anom,2);
-        qc_ts(tag_no).spice_anom_iqr(:,i) = iqr(interp_tmp_spice_anom,2);
+        %%% Checking data coverage at each depth level
+        for j = length(depth_grid):-1:1
+            good_prof(j,:) = {find(~isnan(interp_tmp_spice_anom(j,:)) & ~isnan(interp_tmp_N2_anom(j,:)))};
+            length_check(j) = length(good_prof{j,1}) > ref_settings.no_profiles;
+        end
+        
+        %%% Only building reference profiles if there is enough coverage
+        if min(depth_grid(length_check)) < ref_settings.top_depth & max(depth_grid(length_check)) > ref_settings.bottom_depth %%% Checking min/max depths
+            data = good_prof(length_check,:);
+            depth_data = depth_grid(length_check);
+            last_ind = find(depth_data < ref_settings.top_depth, 1, 'last');
+            overlap = intersect(data{last_ind,1}, data{end,1}); %%% Checking number of consistent profiles over depth range
+            if length(overlap) > ref_settings.no_profiles %%% Generating reference profiles for those that meet the requirements
+                %%% Calculating IQR
+                qc_ts(tag_no).salt_anom_iqr(:,i) = prctile(interp_tmp_salt_anom(:,overlap), 75, 2) - prctile(interp_tmp_salt_anom(:,overlap), 25, 2);
+                qc_ts(tag_no).temp_anom_iqr(:,i) = prctile(interp_tmp_temp_anom(:,overlap), 75, 2) - prctile(interp_tmp_temp_anom(:,overlap), 25, 2);
+                qc_ts(tag_no).N2_anom_iqr(:,i) = iqr(interp_tmp_N2_anom(:,overlap),2);
+                qc_ts(tag_no).spice_anom_iqr(:,i) = iqr(interp_tmp_spice_anom(:,overlap),2);
 
-        %%% Calculating upper thresholds
-        qc_ts(tag_no).salt_anom_lim_hi(:,i) = prctile(interp_tmp_salt_anom, 75, 2) + 1.5*qc_ts(tag_no).salt_anom_iqr(:,i);
-        qc_ts(tag_no).temp_anom_lim_hi(:,i) = prctile(interp_tmp_temp_anom, 75, 2) + 1.5*qc_ts(tag_no).temp_anom_iqr(:,i);
-        qc_ts(tag_no).N2_anom_lim_hi(:,i) = prctile(interp_tmp_N2_anom, 75, 2) + 1.5*qc_ts(tag_no).N2_anom_iqr(:,i);
-        qc_ts(tag_no).spice_anom_lim_hi(:,i) = prctile(interp_tmp_spice_anom, 75, 2) + 1.5*qc_ts(tag_no).spice_anom_iqr(:,i);
+                %%% Calculating upper thresholds
+                qc_ts(tag_no).salt_anom_lim_hi(:,i) = prctile(interp_tmp_salt_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).salt_anom_iqr(:,i);
+                qc_ts(tag_no).temp_anom_lim_hi(:,i) = prctile(interp_tmp_temp_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).temp_anom_iqr(:,i);
+                qc_ts(tag_no).N2_anom_lim_hi(:,i) = prctile(interp_tmp_N2_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).N2_anom_iqr(:,i);
+                qc_ts(tag_no).spice_anom_lim_hi(:,i) = prctile(interp_tmp_spice_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).spice_anom_iqr(:,i);
 
-        %%% Calculating lower thresholds
-        qc_ts(tag_no).salt_anom_lim_lo(:,i) = prctile(interp_tmp_salt_anom, 25, 2) - 1.5*qc_ts(tag_no).salt_anom_iqr(:,i);
-        qc_ts(tag_no).temp_anom_lim_lo(:,i) = prctile(interp_tmp_temp_anom, 25, 2) - 1.5*qc_ts(tag_no).temp_anom_iqr(:,i);
-        qc_ts(tag_no).N2_anom_lim_lo(:,i) = prctile(interp_tmp_N2_anom, 25, 2) - 1.5*qc_ts(tag_no).N2_anom_iqr(:,i);
-        qc_ts(tag_no).spice_anom_lim_lo(:,i) = prctile(interp_tmp_spice_anom, 25, 2) - 1.5*qc_ts(tag_no).spice_anom_iqr(:,i);
-
-        %%% 
+                %%% Calculating lower thresholds
+                qc_ts(tag_no).salt_anom_lim_lo(:,i) = prctile(interp_tmp_salt_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).salt_anom_iqr(:,i);
+                qc_ts(tag_no).temp_anom_lim_lo(:,i) = prctile(interp_tmp_temp_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).temp_anom_iqr(:,i);
+                qc_ts(tag_no).N2_anom_lim_lo(:,i) = prctile(interp_tmp_N2_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).N2_anom_iqr(:,i);
+                qc_ts(tag_no).spice_anom_lim_lo(:,i) = prctile(interp_tmp_spice_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).spice_anom_iqr(:,i);
+            end
+        end
     end
 end
 
-clear density_grid interp_tmp_spice_anom interp_tmp_salt_anom interp_tmp_temp_anom interp_tmp_N2_anom j i tmp_density tmp_density_prof tmp_salt_anom tmp_salt_anom_prof ...
-    tmp_spice_anom tmp_spice_anom_prof tmp_temp_anom tmp_temp_anom_prof tmp_N2_anom tmp_N2_anom_prof
+% clear density_grid interp_tmp_spice_anom interp_tmp_salt_anom interp_tmp_temp_anom interp_tmp_N2_anom j i tmp_density tmp_density_prof tmp_salt_anom tmp_salt_anom_prof ...
+%     tmp_spice_anom tmp_spice_anom_prof tmp_temp_anom tmp_temp_anom_prof tmp_N2_anom tmp_N2_anom_prof
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%
 %%% IQR Check %%%
 %%%%%%%%%%%%%%%%%
 
-for tag_no = 1:100
+for tag_no = 1%:100
     z = 1;
     u = 1;
-    qc_ts(tag_no).pot_scv = [];
+    qc_ts(tag_no).pot_cyclones = [];
+    qc_ts(tag_no).pot_anticyclones = [];
 
     for i = 1:length(qc_ts(tag_no).cast)
         pres_levels = qc_ts(tag_no).pres(:,i) > iqr_settings.min_pres;
@@ -501,9 +523,9 @@ end
 clear u z pres_levels lt i  
 
 %%
-isopycnals = 0.01;
+isopycnals = 0.1;
 
-tag_no = 63;
+tag_no = 1;
 
 figure('Renderer', 'painters', 'Position', [0 0 1000 950])
 sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
@@ -591,3 +613,37 @@ set(ax2, 'Position', p2);
 set(ax3, 'Position', p3);
 
 clear ax1 ax2 ax3 C h cmap fig i h IB isopycnals p1 p2 p3 pp
+%%
+for i = qc_ts(tag_no).pot_anticyclones
+
+    fig = figure();
+    subplot(121)
+    hold on
+    plot(qc_ts(tag_no).N2(:,i), qc_ts(tag_no).pres(:,i), 'k', 'DisplayName', 'Profile')
+    plot(qc_ts(tag_no).ref_N2(:,i), qc_ts(tag_no).pres(:,i), 'r', 'DisplayName', 'Reference');
+    hold off
+    xlabel('N^2');
+    ylabel('Pressure')
+    ylim([0 max(qc_ts(tag_no).pres(~isnan(qc_ts(tag_no).N2_anom(:,i)),i))])
+    set(gca, 'YDir', 'reverse')
+    legend();
+
+
+    subplot(122)
+    hold on
+    plot(qc_ts(tag_no).N2_anom(:,i), qc_ts(tag_no).pres(:,i), 'k', 'DisplayName', 'Profile Anomaly');
+    plot(qc_ts(tag_no).N2_anom_lim_lo(:,i), qc_ts(tag_no).pres(:,i), 'b', 'DisplayName', 'Lower Threshold');
+    plot(qc_ts(tag_no).N2_anom_lim_hi(:,i), qc_ts(tag_no).pres(:,i), 'r', 'DisplayName', 'UpperThreshold');
+    hold off
+    xlabel('N^2 Anomaly');
+    ylabel('Pressure')
+    ylim([0 max(qc_ts(tag_no).pres(~isnan(qc_ts(tag_no).N2_anom(:,i)),i))])
+    set(gca, 'YDir', 'reverse')
+    legend();
+
+    pause
+
+    close(fig)
+
+end
+%%
