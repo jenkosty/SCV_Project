@@ -23,7 +23,7 @@ ref_settings.inner_window = 2;
 ref_settings.outer_window = 15; %%% number of days away from profile of interest
 ref_settings.bathymetry_mean = 400;
 ref_settings.bathymetry_std = 400;
-ref_settings.no_profiles = 15;
+ref_settings.no_profiles = 10;
 ref_settings.bottom_depth = 350; %%% depth at which there must be at least x # profiles (bottom-up approach)
 ref_settings.top_depth = 100; %%% depth at which there must still be at least x # profiles
 
@@ -265,50 +265,46 @@ for tag_no = test_prof
     %%% Calculating Spice
     qc_ts(tag_no).spice = gsw_spiciness0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
 
-    %%% Calculating isopycnal separation
-    for k = 1:length(qc_ts(tag_no).cast)
-        %%% Creating y-axis for isopycnal separation calculation
-        isopycnal_sep_y_axis = (1026:var.den_grid_sep:1028); %min(qc_ts(tag_no).density(:,k)):var.den_grid_sep:max(qc_ts(tag_no).density(:,k));
-
-        %%% Density-space isopycnal separation calculation
-        isopycnal_sep = NaN(length(isopycnal_sep_y_axis), 1);
-        u = 1;
-        for j = isopycnal_sep_y_axis
-            isopycnal_sep(u) = length(find(qc_ts(tag_no).density(:,k) <= (j+var.isopycnal_sep) & qc_ts(tag_no).density(:,k) >= (j-var.isopycnal_sep)));
-            isopycnal_sep(u) = isopycnal_sep(u) * mean(diff(depth_grid));
-            u = u + 1;
-        end
-
-        %%% Calculating pressure along isopycnal separation y-axis
-        pres = NaN(length(isopycnal_sep_y_axis), 1);
-        density = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,k)),k);
-        depths = depth_grid(~isnan(qc_ts(tag_no).density(:,k)));
-        [~,b] = unique(density);
-        if length(b) > 2
-            pres = interp1(density(b), depths(b), isopycnal_sep_y_axis');
-        end
-
-        %%% Calculating isopycnal separation in pressure-space
-        isopycnal_sep_final = NaN(length(depth_grid), 1);
-        pres_ds = pres(~isnan(pres));
-        isopycnal_sep_ds = isopycnal_sep(~isnan(pres));
-        [~,b] = unique(pres_ds);
-        if length(b) > 2
-            isopycnal_sep_final = interp1(pres_ds(b), isopycnal_sep_ds(b), depth_grid);
-        end
-
-        qc_ts(tag_no).isopycnal_sep(:,k) = isopycnal_sep_final;
-    end
-
-        clear ts_isopycnal_sep ts_pres u pres_final pres j isopycnal_sep isopycnal_sep_ds isopycnal_sep_y_axis...
+    clear ts_isopycnal_sep ts_pres u pres_final pres j isopycnal_sep isopycnal_sep_ds isopycnal_sep_y_axis...
             i a b density depths density_final k isopycnal_sep_final pres_ds ts_density
 
     %%% Calculating Bathymetry
-    qc_ts(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+    %qc_ts(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
 
 end
 
 clear N2 mid_pres
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Interpolating to Density Grid %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Creating density grid
+density_grid = (1026.6:0.01:1028)';
+
+for tag_no = test_prof
+    
+    for i = 1:length(qc_ts(tag_no).cast)
+        
+        %%% Removing NaNs
+        tmp_density = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
+        tmp_salt = qc_ts(tag_no).salt(~isnan(qc_ts(tag_no).salt(:,i)),i);
+        tmp_temp = qc_ts(tag_no).temp(~isnan(qc_ts(tag_no).temp(:,i)),i);
+        tmp_N2 = qc_ts(tag_no).N2(~isnan(qc_ts(tag_no).N2(:,i)),i);
+        tmp_density_N2 = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)) & ~isnan(qc_ts(tag_no).N2(:,i)),i);
+        tmp_spice = qc_ts(tag_no).spice(~isnan(qc_ts(tag_no).spice(:,i)),i);
+        
+        %%% Interpolating data
+        interp_salt = interp1(tmp_density, tmp_salt, density_grid);
+        interp_temp = interp1(tmp_density, tmp_temp, density_grid);
+        interp_N2 = interp1(tmp_density_N2, tmp_N2, density_grid);
+        interp_spice = interp1(tmp_density, tmp_spice, density_grid);
+    end
+    
+end
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -319,18 +315,6 @@ clear N2 mid_pres
 for tag_no = test_prof
     
      mean_ind = cell(2,length(qc_ts(tag_no).cast));
-%     prof_dates = datenum(qc_ts(tag_no).time);
-%     u = 1;
-
-    %%% Finding indices to use for background profile calculation
-%     for i = prof_dates'
-% 
-%         mean_ind(1,u) = {find(prof_dates < i & prof_dates > i-ref_settings.outer_window)'};
-%         mean_ind(2,u) = {find(prof_dates > i & prof_dates < i+ref_settings.outer_window)'};
-% 
-%         u = u + 1;
-% 
-%     end
 
     %%% Finding indices to use for background profile calculation
     for i = 1:length(qc_ts(tag_no).cast)
@@ -748,7 +732,7 @@ end
 for i = qc_ts(tag_no).pot_cyclones_isopycnal_sep
     xline(datenum(qc_ts(tag_no).time(i,:)), 'b--')
 end
-xline(datenum(qc_ts(tag_no).time(84,:)), 'w')
+%xline(datenum(qc_ts(tag_no).time(84,:)), 'w')
 hold off
 colorbar;
 caxis([min(min(qc_ts(tag_no).isopycnal_sep)) max(max(qc_ts(tag_no).isopycnal_sep))])
@@ -960,6 +944,5 @@ for tag_no = test_prof
 end
 
 
-%%
 %%
 
