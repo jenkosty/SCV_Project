@@ -235,9 +235,9 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Calculating Additional Variables %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Variables %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 test_prof = 60:70;
 
@@ -286,6 +286,13 @@ density_grid = (1026.6:0.01:1028)';
 
 for tag_no = test_prof
     
+    %%% Creating matrices for density-interpolated data
+    interp_salt = NaN(length(density_grid), length(qc_ts(tag_no).cast));
+    interp_temp = NaN(length(density_grid), length(qc_ts(tag_no).cast));
+    interp_N2 = NaN(length(density_grid), length(qc_ts(tag_no).cast));
+    interp_spice = NaN(length(density_grid), length(qc_ts(tag_no).cast));
+    interp_pres = NaN(length(density_grid), length(qc_ts(tag_no).cast));
+    
     for i = 1:length(qc_ts(tag_no).cast)
         
         %%% Removing NaNs
@@ -295,17 +302,49 @@ for tag_no = test_prof
         tmp_N2 = qc_ts(tag_no).N2(~isnan(qc_ts(tag_no).N2(:,i)),i);
         tmp_density_N2 = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)) & ~isnan(qc_ts(tag_no).N2(:,i)),i);
         tmp_spice = qc_ts(tag_no).spice(~isnan(qc_ts(tag_no).spice(:,i)),i);
+        tmp_pres = depth_grid(~isnan(qc_ts(tag_no).density(:,i)));
         
         %%% Interpolating data
-        interp_salt = interp1(tmp_density, tmp_salt, density_grid);
-        interp_temp = interp1(tmp_density, tmp_temp, density_grid);
-        interp_N2 = interp1(tmp_density_N2, tmp_N2, density_grid);
-        interp_spice = interp1(tmp_density, tmp_spice, density_grid);
+        interp_salt(:,i) = interp1(tmp_density, tmp_salt, density_grid);
+        interp_temp(:,i) = interp1(tmp_density, tmp_temp, density_grid);
+        interp_N2(:,i) = interp1(tmp_density_N2, tmp_N2, density_grid);
+        interp_spice(:,i) = interp1(tmp_density, tmp_spice, density_grid);
+        interp_pres(:,i) = interp1(tmp_density, tmp_pres, density_grid);
     end
+    
+    %%% Saving density-interpolated data
+    qc_ts(tag_no).salt_ds = interp_salt;
+    qc_ts(tag_no).temp_ds = interp_temp;
+    qc_ts(tag_no).N2_ds = interp_N2;
+    qc_ts(tag_no).spice_ds = interp_spice;
+    qc_ts(tag_no).pres_ds = interp_pres;
+    
+    clear tmp_density tmp_salt tmp_temp tmp_N2 tmp_density_N2 tmp_spice tmp_pres ...
+        interp_salt interp_temp interp_N2 interp_spice interp_pres
     
 end
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Isopycnal Separation %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+for tag_no = test_prof
+    
+    isopycnal_separation = NaN(length(density_grid), length(qc_ts(tag_no).cast));
+    
+    for i = 1:length(qc_ts(tag_no).cast)
+        for j = 1:length(density_grid)
+            isopycnal_separation(j,i) = qc_ts(tag_no).pres_ds(min(j+1, length(density_grid)), i) - qc_ts(tag_no).pres_ds(max(j-1, 1), i);
+        end
+    end
+    
+    qc_ts(tag_no).isopycnal_separation_ds = isopycnal_separation;
+    
+    clear isopycnal_separation
+end
+   
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -336,78 +375,54 @@ for tag_no = test_prof
     end
 
     %%% Creating reference profiles for each of the time series profiles
-    qc_ts(tag_no).ref_salt = NaN(size(qc_ts(tag_no).salt));
-    qc_ts(tag_no).ref_temp = NaN(size(qc_ts(tag_no).temp));
-    qc_ts(tag_no).ref_N2 = NaN(size(qc_ts(tag_no).N2));
-    qc_ts(tag_no).ref_spice = NaN(size(qc_ts(tag_no).spice));
-    qc_ts(tag_no).ref_isopycnal_sep = NaN(size(qc_ts(tag_no).isopycnal_sep));
+    qc_ts(tag_no).ref_salt_ds = NaN(size(qc_ts(tag_no).salt_ds));
+    qc_ts(tag_no).ref_temp_ds = NaN(size(qc_ts(tag_no).temp_ds));
+    qc_ts(tag_no).ref_N2_ds = NaN(size(qc_ts(tag_no).N2_ds));
+    qc_ts(tag_no).ref_spice_ds = NaN(size(qc_ts(tag_no).spice_ds));
+    qc_ts(tag_no).ref_isopycnal_separation_ds = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
 
     for i = 1:length(qc_ts(tag_no).cast)
     
         %%% Extracting the profiles to build the reference profile
-        tmp_density = qc_ts(tag_no).density(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_salt = qc_ts(tag_no).salt(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_temp = qc_ts(tag_no).temp(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_N2 = qc_ts(tag_no).N2(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_spice = qc_ts(tag_no).spice(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_isopycnal_sep = qc_ts(tag_no).isopycnal_sep(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt_ds = qc_ts(tag_no).salt_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_temp_ds = qc_ts(tag_no).temp_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_N2_ds = qc_ts(tag_no).N2_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_spice_ds = qc_ts(tag_no).spice_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_isopycnal_separation_ds = qc_ts(tag_no).isopycnal_separation_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
 
-        %%% Interpolating the reference profiles to the POI's density grid
-        clear interp_tmp_salt interp_tmp_temp interp_tmp_N2 interp_tmp_spice interp_tmp_isopycnal_sep
-
-        for j = 1:size(tmp_salt,2)
-            %%% Removing NaNs
-            tmp_density_prof = tmp_density(~isnan(tmp_density(:,j)),j);
-            tmp_salt_prof = tmp_salt(~isnan(tmp_salt(:,j)),j);
-            tmp_temp_prof = tmp_temp(~isnan(tmp_temp(:,j)),j);
-            tmp_N2_prof = tmp_N2(~isnan(tmp_density(:,j)) & ~isnan(tmp_N2(:,j)),j);
-            tmp_density_prof_N2 = tmp_density(~isnan(tmp_density(:,j)) & ~isnan(tmp_N2(:,j)),j);
-            tmp_spice_prof = tmp_spice(~isnan(tmp_spice(:,j)),j);
-            tmp_isopycnal_sep_prof = tmp_isopycnal_sep(~isnan(tmp_isopycnal_sep(:,j)),j);
-            tmp_density_prof_isopycnal_sep = tmp_density(~isnan(tmp_density(:,j)) & ~isnan(tmp_isopycnal_sep(:,j)),j);
-            
-            if isempty(tmp_isopycnal_sep_prof)
-                continue
-            end
-
-            %%% Interpolating data
-            interp_tmp_salt(:,j) = interp1(tmp_density_prof, tmp_salt_prof, qc_ts(tag_no).density(:,i));
-            interp_tmp_temp(:,j) = interp1(tmp_density_prof, tmp_temp_prof, qc_ts(tag_no).density(:,i));
-            interp_tmp_N2(:,j) = interp1(tmp_density_prof_N2, tmp_N2_prof, qc_ts(tag_no).density(:,i));
-            interp_tmp_spice(:,j) = interp1(tmp_density_prof, tmp_spice_prof, qc_ts(tag_no).density(:,i));
-            interp_tmp_isopycnal_sep(:,j) = interp1(tmp_density_prof_isopycnal_sep, tmp_isopycnal_sep_prof, qc_ts(tag_no).density(:,i));
-        end
-
-        %%% Checking data coverage at each depth level
-        for j = length(depth_grid):-1:1
-            good_prof(j,:) = {find(~isnan(interp_tmp_spice(j,:)) & ~isnan(interp_tmp_N2(j,:)) & ~isnan(interp_tmp_isopycnal_sep(j,:)))};
-            length_check(j) = length(good_prof{j,1}) > ref_settings.no_profiles;
-        end
+        qc_ts(tag_no).ref_salt_ds(:,i) = median(tmp_salt_ds, 2);
+        qc_ts(tag_no).ref_temp_ds(:,i) = median(tmp_temp_ds, 2);
+        qc_ts(tag_no).ref_N2_ds(:,i) = median(tmp_N2_ds, 2);
+        qc_ts(tag_no).ref_spice_ds(:,i) = median(tmp_spice_ds, 2);
+        qc_ts(tag_no).ref_isopycnal_separation_ds(:,i) = median(tmp_isopycnal_separation_ds, 2);
         
-        %%% Only building reference profiles if there is enough coverage
-        if min(depth_grid(length_check)) < ref_settings.top_depth & max(depth_grid(length_check)) > ref_settings.bottom_depth %%% Checking min/max depths
-            data = good_prof(length_check,:);
-            depth_data = depth_grid(length_check);
-            last_ind = find(depth_data < ref_settings.top_depth, 1, 'last');
-            overlap = intersect(data{last_ind,1}, data{end,1}); %%% Checking number of consistent profiles over depth range
-            if length(overlap) > ref_settings.no_profiles %%% Generating reference profiles for those that meet the requirements
-                qc_ts(tag_no).ref_salt(:,i) = median(interp_tmp_salt(:,overlap),2);
-                qc_ts(tag_no).ref_temp(:,i) = median(interp_tmp_temp(:,overlap),2);
-                qc_ts(tag_no).ref_N2(:,i) = median(interp_tmp_N2(:,overlap),2);
-                qc_ts(tag_no).ref_spice(:,i) = median(interp_tmp_spice(:,overlap),2);
-                qc_ts(tag_no).ref_isopycnal_sep(:,i) = median(interp_tmp_isopycnal_sep(:,overlap),2);
-            end
-        end
+        
+%         %%% Checking data coverage at each depth level
+%         for j = length(density_grid):-1:1
+%             good_prof(j,:) = {find(~isnan(interp_tmp_spice(j,:)) & ~isnan(interp_tmp_N2(j,:)) & ~isnan(interp_tmp_isopycnal_sep(j,:)))};
+%             length_check(j) = length(good_prof{j,1}) > ref_settings.no_profiles;
+%         end
+%         
+%         %%% Only building reference profiles if there is enough coverage
+%         if min(depth_grid(length_check)) < ref_settings.top_depth & max(depth_grid(length_check)) > ref_settings.bottom_depth %%% Checking min/max depths
+%             data = good_prof(length_check,:);
+%             depth_data = depth_grid(length_check);
+%             last_ind = find(depth_data < ref_settings.top_depth, 1, 'last');
+%             overlap = intersect(data{last_ind,1}, data{end,1}); %%% Checking number of consistent profiles over depth range
+%             if length(overlap) > ref_settings.no_profiles %%% Generating reference profiles for those that meet the requirements
+%                 qc_ts(tag_no).ref_salt(:,i) = median(interp_tmp_salt(:,overlap),2);
+%                 qc_ts(tag_no).ref_temp(:,i) = median(interp_tmp_temp(:,overlap),2);
+%                 qc_ts(tag_no).ref_N2(:,i) = median(interp_tmp_N2(:,overlap),2);
+%                 qc_ts(tag_no).ref_spice(:,i) = median(interp_tmp_spice(:,overlap),2);
+%                 qc_ts(tag_no).ref_isopycnal_sep(:,i) = median(interp_tmp_isopycnal_sep(:,overlap),2);
+%             end
+%         end
     end
 
 end
 
-clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp...
-    tmp_N2_prof tmp_N2 tmp_density_prof_N2 tmp_spice_prof tmp_spice interp_tmp_salt interp_tmp_temp...
-    interp_tmp_N2 interp_tmp_spice j i density_grid tmp_bathymetry u prof_dates good_prof top_data bottom_data...
-    depth_check  depth_data last_ind length_check overlap data tmp_isopycnal_sep_prof tmp_isopycnal_sep ...
-    tmp_density_prof_isopycnal_sep interp_tmp_isopycnal_sep
-
+clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -417,20 +432,20 @@ clear tmp_density_prof tmp_density tmp_salt_prof tmp_salt tmp_temp_prof tmp_temp
 for tag_no = test_prof
 
     %%% Creating anomaly profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom = NaN(size(qc_ts(tag_no).salt));
-    qc_ts(tag_no).temp_anom = NaN(size(qc_ts(tag_no).temp));
-    qc_ts(tag_no).N2_anom = NaN(size(qc_ts(tag_no).N2));
-    qc_ts(tag_no).spice_anom = NaN(size(qc_ts(tag_no).spice));
-    qc_ts(tag_no).isopycnal_sep_anom = NaN(size(qc_ts(tag_no).isopycnal_sep));
+    qc_ts(tag_no).salt_anom_ds = NaN(size(qc_ts(tag_no).salt_ds));
+    qc_ts(tag_no).temp_anom_ds = NaN(size(qc_ts(tag_no).temp_ds));
+    qc_ts(tag_no).N2_anom_ds = NaN(size(qc_ts(tag_no).N2_ds));
+    qc_ts(tag_no).spice_anom_ds = NaN(size(qc_ts(tag_no).spice_ds));
+    qc_ts(tag_no).isopycnal_separation_anom_ds = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
 
     for i = 1:length(qc_ts(tag_no).cast)
 
         %%% Calculating Anomalies
-        qc_ts(tag_no).salt_anom(:,i) = qc_ts(tag_no).salt(:,i) - qc_ts(tag_no).ref_salt(:,i);
-        qc_ts(tag_no).temp_anom(:,i) = qc_ts(tag_no).temp(:,i) - qc_ts(tag_no).ref_temp(:,i);
-        qc_ts(tag_no).N2_anom(:,i) = qc_ts(tag_no).N2(:,i) - qc_ts(tag_no).ref_N2(:,i);
-        qc_ts(tag_no).spice_anom(:,i) = qc_ts(tag_no).spice(:,i) - qc_ts(tag_no).ref_spice(:,i);
-        qc_ts(tag_no).isopycnal_sep_anom(:,i) = qc_ts(tag_no).isopycnal_sep(:,i) - qc_ts(tag_no).ref_isopycnal_sep(:,i);
+        qc_ts(tag_no).salt_anom_ds(:,i) = qc_ts(tag_no).salt_ds(:,i) - qc_ts(tag_no).ref_salt_ds(:,i);
+        qc_ts(tag_no).temp_anom_ds(:,i) = qc_ts(tag_no).temp_ds(:,i) - qc_ts(tag_no).ref_temp_ds(:,i);
+        qc_ts(tag_no).N2_anom_ds(:,i) = qc_ts(tag_no).N2_ds(:,i) - qc_ts(tag_no).ref_N2_ds(:,i);
+        qc_ts(tag_no).spice_anom_ds(:,i) = qc_ts(tag_no).spice_ds(:,i) - qc_ts(tag_no).ref_spice_ds(:,i);
+        qc_ts(tag_no).isopycnal_separation_anom_ds(:,i) = qc_ts(tag_no).isopycnal_separation_ds(:,i) - qc_ts(tag_no).ref_isopycnal_separation_ds(:,i);
     end
 end
 
@@ -443,18 +458,6 @@ end
 for tag_no = test_prof
 
     mean_ind = cell(2,length(qc_ts(tag_no).cast));
-% %     prof_dates = datenum(qc_ts(tag_no).time);
-% %     u = 1;
-% % 
-% %     %%% Finding indices to use for background profile calculation
-% %     for i = prof_dates'
-% % 
-% %         mean_ind(1,u) = {find(prof_dates < i & prof_dates > i-ref_settings.outer_window)'};
-% %         mean_ind(2,u) = {find(prof_dates > i & prof_dates < i+ref_settings.outer_window)'};
-% % 
-% %         u = u + 1;
-% % 
-% %     end
 
     %%% Finding indices to use for background profile calculation
     for i = 1:length(qc_ts(tag_no).cast)
@@ -476,25 +479,25 @@ for tag_no = test_prof
     end
 
     %%% Creating iqr profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_iqr = NaN(size(qc_ts(tag_no).salt));
-    qc_ts(tag_no).temp_anom_iqr = NaN(size(qc_ts(tag_no).temp));
-    qc_ts(tag_no).N2_anom_iqr = NaN(size(qc_ts(tag_no).N2));
-    qc_ts(tag_no).spice_anom_iqr = NaN(size(qc_ts(tag_no).spice));
-    qc_ts(tag_no).isopycnal_sep_anom_iqr = NaN(size(qc_ts(tag_no).isopycnal_sep));
+    qc_ts(tag_no).salt_anom_ds_iqr = NaN(size(qc_ts(tag_no).salt_ds));
+    qc_ts(tag_no).temp_anom_ds_iqr = NaN(size(qc_ts(tag_no).temp_ds));
+    qc_ts(tag_no).N2_anom_ds_iqr = NaN(size(qc_ts(tag_no).N2_ds));
+    qc_ts(tag_no).spice_anom_ds_iqr = NaN(size(qc_ts(tag_no).spice_ds));
+    qc_ts(tag_no).isopycnal_separation_anom_ds_iqr = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
 
     %%% Creating lower iqr limit profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_lim_lo = NaN(size(qc_ts(tag_no).salt));
-    qc_ts(tag_no).temp_anom_lim_lo = NaN(size(qc_ts(tag_no).temp));
-    qc_ts(tag_no).N2_anom_lim_lo = NaN(size(qc_ts(tag_no).N2));
-    qc_ts(tag_no).spice_anom_lim_lo = NaN(size(qc_ts(tag_no).spice));
-    qc_ts(tag_no).isopycnal_sep_anom_lim_lo = NaN(size(qc_ts(tag_no).isopycnal_sep));
+    qc_ts(tag_no).salt_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).salt_ds));
+    qc_ts(tag_no).temp_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).temp_ds));
+    qc_ts(tag_no).N2_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).N2_ds));
+    qc_ts(tag_no).spice_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).spice_ds));
+    qc_ts(tag_no).isopycnal_separation_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
 
     %%% Creating upper iqr limit profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_lim_hi = NaN(size(qc_ts(tag_no).salt));
-    qc_ts(tag_no).temp_anom_lim_hi = NaN(size(qc_ts(tag_no).temp));
-    qc_ts(tag_no).N2_anom_lim_hi = NaN(size(qc_ts(tag_no).N2));
-    qc_ts(tag_no).spice_anom_lim_hi = NaN(size(qc_ts(tag_no).spice));
-    qc_ts(tag_no).isopycnal_sep_anom_lim_hi = NaN(size(qc_ts(tag_no).isopycnal_sep));
+    qc_ts(tag_no).salt_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).salt_ds));
+    qc_ts(tag_no).temp_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).temp_ds));
+    qc_ts(tag_no).N2_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).N2_ds));
+    qc_ts(tag_no).spice_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).spice_ds));
+    qc_ts(tag_no).isopycnal_separation_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
 
     for i = 1:length(qc_ts(tag_no).cast)
 
@@ -945,4 +948,3 @@ end
 
 
 %%
-
