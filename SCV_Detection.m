@@ -235,41 +235,49 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Calculating Variables %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Variables (Pressure Space) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-test_prof = 60:70;
+test_prof = 1:10;
 
 for tag_no = test_prof
+    
+    %%% Calculating Bathymetry
+    qc_ts(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
 
-    %%% Creating pressure matrix
-    qc_ts(tag_no).pres = depth_grid .* ones(size(qc_ts(tag_no).salt));
+    %%% Creating pressure space structure
+    tmp_pres_space.pres = depth_grid .* ones(size(qc_ts(tag_no).salt));
+    
+    %%% Assigning temperature and salinity data to new pressure space
+    %%% structure
+    tmp_pres_space.salt = qc_ts(tag_no).salt;
+    tmp_pres_space.temp = qc_ts(tag_no).temp;
 
     %%% Calculating absolute salinity and conservative temperature
-    qc_ts(tag_no).salt_absolute = gsw_SA_from_SP(qc_ts(tag_no).salt, depth_grid, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
-    qc_ts(tag_no).temp_conservative = gsw_CT_from_t(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp, qc_ts(tag_no).pres);
+    tmp_pres_space.salt_absolute = gsw_SA_from_SP(tmp_pres_space.salt, depth_grid, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+    tmp_pres_space.temp_conservative = gsw_CT_from_t(tmp_pres_space.salt_absolute, tmp_pres_space.temp, tmp_pres_space.pres);
 
     %%% Calculating density
-    qc_ts(tag_no).density = gsw_rho(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative, zeros(size(qc_ts(tag_no).salt)));
+    tmp_pres_space.density = gsw_rho(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, zeros(size(tmp_pres_space.salt)));
 
     %%% Calculating Potential Density Anomaly
-    qc_ts(tag_no).sigma0 = gsw_sigma0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
+    tmp_pres_space.sigma0 = gsw_sigma0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
 
     %%% Calculating N^2
-    [N2, mid_pres] = gsw_Nsquared(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative, qc_ts(tag_no).pres, qc_ts(tag_no).lat .* ones(size(qc_ts(tag_no).salt)));
+    [N2, mid_pres] = gsw_Nsquared(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, qc_ts(tag_no).lat .* ones(size(tmp_pres_space.salt)));
     for i = 1:length(qc_ts(tag_no).cast)
-        qc_ts(tag_no).N2(:,i) = interp1(mid_pres(:,i), N2(:,i), qc_ts(tag_no).pres(:,i));
+        tmp_pres_space.N2(:,i) = interp1(mid_pres(:,i), N2(:,i), tmp_pres_space.pres(:,i));
     end
 
     %%% Calculating Spice
-    qc_ts(tag_no).spice = gsw_spiciness0(qc_ts(tag_no).salt_absolute, qc_ts(tag_no).temp_conservative);
+    tmp_pres_space.spice = gsw_spiciness0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
+    
+    %%% Assigning variables to structure
+    qc_ts(tag_no).ps = tmp_pres_space;
 
     clear ts_isopycnal_sep ts_pres u pres_final pres j isopycnal_sep isopycnal_sep_ds isopycnal_sep_y_axis...
-            i a b density depths density_final k isopycnal_sep_final pres_ds ts_density
-
-    %%% Calculating Bathymetry
-    qc_ts(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+            i a b density depths density_final k isopycnal_sep_final pres_ds ts_density tmp_pres_space
 
 end
 
@@ -296,13 +304,13 @@ for tag_no = test_prof
     for i = 1:length(qc_ts(tag_no).cast)
         
         %%% Removing NaNs
-        tmp_density = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)),i);
-        tmp_salt = qc_ts(tag_no).salt(~isnan(qc_ts(tag_no).salt(:,i)),i);
-        tmp_temp = qc_ts(tag_no).temp(~isnan(qc_ts(tag_no).temp(:,i)),i);
-        tmp_N2 = qc_ts(tag_no).N2(~isnan(qc_ts(tag_no).N2(:,i)),i);
-        tmp_density_N2 = qc_ts(tag_no).density(~isnan(qc_ts(tag_no).density(:,i)) & ~isnan(qc_ts(tag_no).N2(:,i)),i);
-        tmp_spice = qc_ts(tag_no).spice(~isnan(qc_ts(tag_no).spice(:,i)),i);
-        tmp_pres = depth_grid(~isnan(qc_ts(tag_no).density(:,i)));
+        tmp_density = qc_ts(tag_no).ps.density(~isnan(qc_ts(tag_no).ps.density(:,i)),i);
+        tmp_salt = qc_ts(tag_no).ps.salt(~isnan(qc_ts(tag_no).ps.salt(:,i)),i);
+        tmp_temp = qc_ts(tag_no).ps.temp(~isnan(qc_ts(tag_no).ps.temp(:,i)),i);
+        tmp_N2 = qc_ts(tag_no).ps.N2(~isnan(qc_ts(tag_no).ps.N2(:,i)),i);
+        tmp_density_N2 = qc_ts(tag_no).ps.density(~isnan(qc_ts(tag_no).ps.density(:,i)) & ~isnan(qc_ts(tag_no).ps.N2(:,i)),i);
+        tmp_spice = qc_ts(tag_no).ps.spice(~isnan(qc_ts(tag_no).ps.spice(:,i)),i);
+        tmp_pres = depth_grid(~isnan(qc_ts(tag_no).ps.density(:,i)));
         
         %%% Interpolating data
         interp_salt(:,i) = interp1(tmp_density, tmp_salt, density_grid);
@@ -313,14 +321,17 @@ for tag_no = test_prof
     end
     
     %%% Saving density-interpolated data
-    qc_ts(tag_no).salt_ds = interp_salt;
-    qc_ts(tag_no).temp_ds = interp_temp;
-    qc_ts(tag_no).N2_ds = interp_N2;
-    qc_ts(tag_no).spice_ds = interp_spice;
-    qc_ts(tag_no).pres_ds = interp_pres;
+    tmp_density_space.salt = interp_salt;
+    tmp_density_space.temp = interp_temp;
+    tmp_density_space.N2 = interp_N2;
+    tmp_density_space.spice = interp_spice;
+    tmp_density_space.pres = interp_pres;
+    
+    %%% Saving structure
+    qc_ts(tag_no).ds = tmp_density_space;
     
     clear tmp_density tmp_salt tmp_temp tmp_N2 tmp_density_N2 tmp_spice tmp_pres ...
-        interp_salt interp_temp interp_N2 interp_spice interp_pres
+        interp_salt interp_temp interp_N2 interp_spice interp_pres tmp_density_space
     
 end
 
@@ -336,11 +347,11 @@ for tag_no = test_prof
     
     for i = 1:length(qc_ts(tag_no).cast)
         for j = 1:length(density_grid)
-            isopycnal_separation(j,i) = qc_ts(tag_no).pres_ds(min(j+1, length(density_grid)), i) - qc_ts(tag_no).pres_ds(max(j-1, 1), i);
+            isopycnal_separation(j,i) = qc_ts(tag_no).ds.pres(min(j+1, length(density_grid)), i) - qc_ts(tag_no).ds.pres(max(j-1, 1), i);
         end
     end
     
-    qc_ts(tag_no).isopycnal_separation_ds = isopycnal_separation;
+    qc_ts(tag_no).ds.isopycnal_separation = isopycnal_separation;
     
     clear isopycnal_separation i j 
 end
@@ -375,57 +386,36 @@ for tag_no = test_prof
     end
 
     %%% Creating reference profiles for each of the time series profiles
-    qc_ts(tag_no).ref_salt_ds = NaN(size(qc_ts(tag_no).salt_ds));
-    qc_ts(tag_no).ref_temp_ds = NaN(size(qc_ts(tag_no).temp_ds));
-    qc_ts(tag_no).ref_N2_ds = NaN(size(qc_ts(tag_no).N2_ds));
-    qc_ts(tag_no).ref_spice_ds = NaN(size(qc_ts(tag_no).spice_ds));
-    qc_ts(tag_no).ref_isopycnal_separation_ds = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
+    qc_ts(tag_no).ds.ref_salt = NaN(size(qc_ts(tag_no).ds.salt));
+    qc_ts(tag_no).ds.ref_temp = NaN(size(qc_ts(tag_no).ds.temp));
+    qc_ts(tag_no).ds.ref_N2 = NaN(size(qc_ts(tag_no).ds.N2));
+    qc_ts(tag_no).ds.ref_spice = NaN(size(qc_ts(tag_no).ds.spice));
+    qc_ts(tag_no).ds.ref_isopycnal_separation = NaN(size(qc_ts(tag_no).ds.isopycnal_separation));
 
     for i = 1:length(qc_ts(tag_no).cast)
     
         %%% Extracting the profiles to build the reference profile
-        tmp_salt_ds = qc_ts(tag_no).salt_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_temp_ds = qc_ts(tag_no).temp_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_N2_ds = qc_ts(tag_no).N2_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_spice_ds = qc_ts(tag_no).spice_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_isopycnal_separation_ds = qc_ts(tag_no).isopycnal_separation_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt_ds = qc_ts(tag_no).ds.salt(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_temp_ds = qc_ts(tag_no).ds.temp(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_N2_ds = qc_ts(tag_no).ds.N2(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_spice_ds = qc_ts(tag_no).ds.spice(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_isopycnal_separation_ds = qc_ts(tag_no).ds.isopycnal_separation(:,[mean_ind{1,i} mean_ind{2,i}]);
 
-        qc_ts(tag_no).ref_salt_ds(:,i) = median(tmp_salt_ds, 2);
-        qc_ts(tag_no).ref_temp_ds(:,i) = median(tmp_temp_ds, 2);
-        qc_ts(tag_no).ref_N2_ds(:,i) = median(tmp_N2_ds, 2);
-        qc_ts(tag_no).ref_spice_ds(:,i) = median(tmp_spice_ds, 2);
-        qc_ts(tag_no).ref_isopycnal_separation_ds(:,i) = median(tmp_isopycnal_separation_ds, 2);
-        
-        
-%         %%% Checking data coverage at each depth level
-%         for j = length(density_grid):-1:1
-%             good_prof(j,:) = {find(~isnan(tmp_spice_ds(j,:)) & ~isnan(tmp_N2_ds(j,:)) & ~isnan(tmp_isopycnal_separation_ds(j,:)))};
-%             length_check(j) = length(good_prof{j,1}) > ref_settings.no_profiles;
-%         end
-%         
-%         %%% Only building reference profiles if there is enough coverage
-%         if min(depth_grid(length_check)) < ref_settings.top_depth & max(depth_grid(length_check)) > ref_settings.bottom_depth %%% Checking min/max depths
-%             data = good_prof(length_check,:);
-%             depth_data = depth_grid(length_check);
-%             last_ind = find(depth_data < ref_settings.top_depth, 1, 'last');
-%             overlap = intersect(data{last_ind,1}, data{end,1}); %%% Checking number of consistent profiles over depth range
-%             if length(overlap) > ref_settings.no_profiles %%% Generating reference profiles for those that meet the requirements
-%                 qc_ts(tag_no).ref_salt(:,i) = median(interp_tmp_salt(:,overlap),2);
-%                 qc_ts(tag_no).ref_temp(:,i) = median(interp_tmp_temp(:,overlap),2);
-%                 qc_ts(tag_no).ref_N2(:,i) = median(interp_tmp_N2(:,overlap),2);
-%                 qc_ts(tag_no).ref_spice(:,i) = median(interp_tmp_spice(:,overlap),2);
-%                 qc_ts(tag_no).ref_isopycnal_sep(:,i) = median(interp_tmp_isopycnal_sep(:,overlap),2);
-%             end
-%         end
+        %%% 
+        qc_ts(tag_no).ds.ref_salt(:,i) = median(tmp_salt_ds, 2);
+        qc_ts(tag_no).ds.ref_temp(:,i) = median(tmp_temp_ds, 2);
+        qc_ts(tag_no).ds.ref_N2(:,i) = median(tmp_N2_ds, 2);
+        qc_ts(tag_no).ds.ref_spice(:,i) = median(tmp_spice_ds, 2);
+        qc_ts(tag_no).ds.ref_isopycnal_separation(:,i) = median(tmp_isopycnal_separation_ds, 2);
         
     end
 
 end
 
 clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds
-%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating Anomalies %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -433,20 +423,20 @@ clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds
 for tag_no = test_prof
 
     %%% Creating anomaly profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_ds = NaN(size(qc_ts(tag_no).salt_ds));
-    qc_ts(tag_no).temp_anom_ds = NaN(size(qc_ts(tag_no).temp_ds));
-    qc_ts(tag_no).N2_anom_ds = NaN(size(qc_ts(tag_no).N2_ds));
-    qc_ts(tag_no).spice_anom_ds = NaN(size(qc_ts(tag_no).spice_ds));
-    qc_ts(tag_no).isopycnal_separation_anom_ds = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
+    qc_ts(tag_no).ds.salt_anom = NaN(size(qc_ts(tag_no).ds.salt));
+    qc_ts(tag_no).ds.temp_anom = NaN(size(qc_ts(tag_no).ds.temp));
+    qc_ts(tag_no).ds.N2_anom = NaN(size(qc_ts(tag_no).ds.N2));
+    qc_ts(tag_no).ds.spice_anom = NaN(size(qc_ts(tag_no).ds.spice));
+    qc_ts(tag_no).ds.isopycnal_separation_anom = NaN(size(qc_ts(tag_no).ds.isopycnal_separation));
 
     for i = 1:length(qc_ts(tag_no).cast)
 
         %%% Calculating Anomalies
-        qc_ts(tag_no).salt_anom_ds(:,i) = qc_ts(tag_no).salt_ds(:,i) - qc_ts(tag_no).ref_salt_ds(:,i);
-        qc_ts(tag_no).temp_anom_ds(:,i) = qc_ts(tag_no).temp_ds(:,i) - qc_ts(tag_no).ref_temp_ds(:,i);
-        qc_ts(tag_no).N2_anom_ds(:,i) = qc_ts(tag_no).N2_ds(:,i) - qc_ts(tag_no).ref_N2_ds(:,i);
-        qc_ts(tag_no).spice_anom_ds(:,i) = qc_ts(tag_no).spice_ds(:,i) - qc_ts(tag_no).ref_spice_ds(:,i);
-        qc_ts(tag_no).isopycnal_separation_anom_ds(:,i) = qc_ts(tag_no).isopycnal_separation_ds(:,i) - qc_ts(tag_no).ref_isopycnal_separation_ds(:,i);
+        qc_ts(tag_no).ds.salt_anom(:,i) = qc_ts(tag_no).ds.salt(:,i) - qc_ts(tag_no).ds.ref_salt(:,i);
+        qc_ts(tag_no).ds.temp_anom(:,i) = qc_ts(tag_no).ds.temp(:,i) - qc_ts(tag_no).ds.ref_temp(:,i);
+        qc_ts(tag_no).ds.N2_anom(:,i) = qc_ts(tag_no).ds.N2(:,i) - qc_ts(tag_no).ds.ref_N2(:,i);
+        qc_ts(tag_no).ds.spice_anom(:,i) = qc_ts(tag_no).ds.spice(:,i) - qc_ts(tag_no).ds.ref_spice(:,i);
+        qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) = qc_ts(tag_no).ds.isopycnal_separation(:,i) - qc_ts(tag_no).ds.ref_isopycnal_separation(:,i);
     end
 end
 
@@ -480,94 +470,56 @@ for tag_no = test_prof
     end
 
     %%% Creating iqr profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_ds_iqr = NaN(size(qc_ts(tag_no).salt_ds));
-    qc_ts(tag_no).temp_anom_ds_iqr = NaN(size(qc_ts(tag_no).temp_ds));
-    qc_ts(tag_no).N2_anom_ds_iqr = NaN(size(qc_ts(tag_no).N2_ds));
-    qc_ts(tag_no).spice_anom_ds_iqr = NaN(size(qc_ts(tag_no).spice_ds));
-    qc_ts(tag_no).isopycnal_separation_anom_ds_iqr = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
+    qc_ts(tag_no).ds.salt_anom_iqr = NaN(size(qc_ts(tag_no).ds.salt));
+    qc_ts(tag_no).ds.temp_anom_iqr = NaN(size(qc_ts(tag_no).ds.temp));
+    qc_ts(tag_no).ds.N2_anom_iqr = NaN(size(qc_ts(tag_no).ds.N2));
+    qc_ts(tag_no).ds.spice_anom_iqr = NaN(size(qc_ts(tag_no).ds.spice));
+    qc_ts(tag_no).ds.isopycnal_separation_anom_iqr = NaN(size(qc_ts(tag_no).ds.isopycnal_separation));
 
     %%% Creating lower iqr limit profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).salt_ds));
-    qc_ts(tag_no).temp_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).temp_ds));
-    qc_ts(tag_no).N2_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).N2_ds));
-    qc_ts(tag_no).spice_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).spice_ds));
-    qc_ts(tag_no).isopycnal_separation_anom_ds_lim_lo = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
+    qc_ts(tag_no).ds.salt_anom_lim_lo = NaN(size(qc_ts(tag_no).ds.salt));
+    qc_ts(tag_no).ds.temp_anom_lim_lo = NaN(size(qc_ts(tag_no).ds.temp));
+    qc_ts(tag_no).ds.N2_anom_lim_lo = NaN(size(qc_ts(tag_no).ds.N2));
+    qc_ts(tag_no).ds.spice_anom_lim_lo = NaN(size(qc_ts(tag_no).ds.spice));
+    qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo = NaN(size(qc_ts(tag_no).ds.isopycnal_separation));
 
     %%% Creating upper iqr limit profiles for each of the time series profiles
-    qc_ts(tag_no).salt_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).salt_ds));
-    qc_ts(tag_no).temp_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).temp_ds));
-    qc_ts(tag_no).N2_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).N2_ds));
-    qc_ts(tag_no).spice_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).spice_ds));
-    qc_ts(tag_no).isopycnal_separation_anom_ds_lim_hi = NaN(size(qc_ts(tag_no).isopycnal_separation_ds));
+    qc_ts(tag_no).ds.salt_anom_lim_hi = NaN(size(qc_ts(tag_no).ds.salt));
+    qc_ts(tag_no).ds.temp_anom_lim_hi = NaN(size(qc_ts(tag_no).ds.temp));
+    qc_ts(tag_no).ds.N2_anom_lim_hi = NaN(size(qc_ts(tag_no).ds.N2));
+    qc_ts(tag_no).ds.spice_anom_lim_hi = NaN(size(qc_ts(tag_no).ds.spice));
+    qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi = NaN(size(qc_ts(tag_no).ds.isopycnal_separation));
 
     for i = 1:length(qc_ts(tag_no).cast)
 
         %%% Extracting the assigned anomaly profiles
-        tmp_salt_anom_ds = qc_ts(tag_no).salt_anom_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_temp_anom_ds = qc_ts(tag_no).temp_anom_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_N2_anom_ds = qc_ts(tag_no).N2_anom_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_spice_anom_ds = qc_ts(tag_no).spice_anom_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_isopycnal_separation_anom_ds = qc_ts(tag_no).isopycnal_separation_anom_ds(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt_anom_ds = qc_ts(tag_no).ds.salt_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_temp_anom_ds = qc_ts(tag_no).ds.temp_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_N2_anom_ds = qc_ts(tag_no).ds.N2_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_spice_anom_ds = qc_ts(tag_no).ds.spice_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_isopycnal_separation_anom_ds = qc_ts(tag_no).ds.isopycnal_separation_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
         
         %%% Calculating IQR
-        qc_ts(tag_no).salt_anom_ds_iqr(:,i) = prctile(tmp_salt_anom_ds, 75, 2) - prctile(tmp_salt_anom_ds, 25, 2);
-        qc_ts(tag_no).temp_anom_ds_iqr(:,i) = prctile(tmp_temp_anom_ds, 75, 2) - prctile(tmp_temp_anom_ds, 25, 2);
-        qc_ts(tag_no).N2_anom_ds_iqr(:,i) = prctile(tmp_N2_anom_ds, 75, 2) - prctile(tmp_N2_anom_ds, 25, 2);
-        qc_ts(tag_no).spice_anom_ds_iqr(:,i) = prctile(tmp_spice_anom_ds, 75, 2) - prctile(tmp_spice_anom_ds, 25, 2);
-        qc_ts(tag_no).isopycnal_separation_anom_ds_iqr(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 75, 2) - prctile(tmp_isopycnal_separation_anom_ds, 25, 2);
+        qc_ts(tag_no).ds.salt_anom_iqr(:,i) = prctile(tmp_salt_anom_ds, 75, 2) - prctile(tmp_salt_anom_ds, 25, 2);
+        qc_ts(tag_no).ds.temp_anom_iqr(:,i) = prctile(tmp_temp_anom_ds, 75, 2) - prctile(tmp_temp_anom_ds, 25, 2);
+        qc_ts(tag_no).ds.N2_anom_iqr(:,i) = prctile(tmp_N2_anom_ds, 75, 2) - prctile(tmp_N2_anom_ds, 25, 2);
+        qc_ts(tag_no).ds.spice_anom_iqr(:,i) = prctile(tmp_spice_anom_ds, 75, 2) - prctile(tmp_spice_anom_ds, 25, 2);
+        qc_ts(tag_no).ds.isopycnal_separation_anom_iqr(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 75, 2) - prctile(tmp_isopycnal_separation_anom_ds, 25, 2);
         
         %%% Calculating upper thresholds
-        qc_ts(tag_no).salt_anom_ds_lim_hi(:,i) = prctile(tmp_salt_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).salt_anom_ds_iqr(:,i);
-        qc_ts(tag_no).temp_anom_ds_lim_hi(:,i) = prctile(tmp_temp_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).temp_anom_ds_iqr(:,i);
-        qc_ts(tag_no).N2_anom_ds_lim_hi(:,i) = prctile(tmp_N2_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).N2_anom_ds_iqr(:,i);
-        qc_ts(tag_no).spice_anom_ds_lim_hi(:,i) = prctile(tmp_spice_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).spice_anom_ds_iqr(:,i);
-        qc_ts(tag_no).isopycnal_separation_anom_ds_lim_hi(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).isopycnal_separation_anom_ds_iqr(:,i);
+        qc_ts(tag_no).ds.salt_anom_lim_hi(:,i) = prctile(tmp_salt_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.salt_anom_iqr(:,i);
+        qc_ts(tag_no).ds.temp_anom_lim_hi(:,i) = prctile(tmp_temp_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.temp_anom_iqr(:,i);
+        qc_ts(tag_no).ds.N2_anom_lim_hi(:,i) = prctile(tmp_N2_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.N2_anom_iqr(:,i);
+        qc_ts(tag_no).ds.spice_anom_lim_hi(:,i) = prctile(tmp_spice_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.spice_anom_iqr(:,i);
+        qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.isopycnal_separation_anom_iqr(:,i);
         
         %%% Calculating lower thresholds
-        qc_ts(tag_no).salt_anom_ds_lim_lo(:,i) = prctile(tmp_salt_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).salt_anom_ds_iqr(:,i);
-        qc_ts(tag_no).temp_anom_ds_lim_lo(:,i) = prctile(tmp_temp_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).temp_anom_ds_iqr(:,i);
-        qc_ts(tag_no).N2_anom_ds_lim_lo(:,i) = prctile(tmp_N2_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).N2_anom_ds_iqr(:,i);
-        qc_ts(tag_no).spice_anom_ds_lim_lo(:,i) = prctile(tmp_spice_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).spice_anom_ds_iqr(:,i);
-        qc_ts(tag_no).isopycnal_separation_ds_anom_lim_lo(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).isopycnal_separation_anom_ds_iqr(:,i);
+        qc_ts(tag_no).ds.salt_anom_lim_lo(:,i) = prctile(tmp_salt_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.salt_anom_iqr(:,i);
+        qc_ts(tag_no).ds.temp_anom_lim_lo(:,i) = prctile(tmp_temp_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.temp_anom_iqr(:,i);
+        qc_ts(tag_no).ds.N2_anom_lim_lo(:,i) = prctile(tmp_N2_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.N2_anom_iqr(:,i);
+        qc_ts(tag_no).ds.spice_anom_lim_lo(:,i) = prctile(tmp_spice_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.spice_anom_iqr(:,i);
+        qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.isopycnal_separation_anom_iqr(:,i);
     end
-
-
-%         %%% Checking data coverage at each depth level
-%         for j = length(depth_grid):-1:1
-%             good_prof(j,:) = {find(~isnan(interp_tmp_spice_anom(j,:)) & ~isnan(interp_tmp_N2_anom(j,:)) & ~isnan(interp_tmp_isopycnal_sep_anom(j,:)))};
-%             length_check(j) = length(good_prof{j,1}) > ref_settings.no_profiles;
-%         end
-%         
-%         %%% Only building reference profiles if there is enough coverage
-%         if min(depth_grid(length_check)) < ref_settings.top_depth & max(depth_grid(length_check)) > ref_settings.bottom_depth %%% Checking min/max depths
-%             data = good_prof(length_check,:);
-%             depth_data = depth_grid(length_check);
-%             last_ind = find(depth_data < ref_settings.top_depth, 1, 'last');
-%             overlap = intersect(data{last_ind,1}, data{end,1}); %%% Checking number of consistent profiles over depth range
-%             if length(overlap) > ref_settings.no_profiles %%% Generating reference profiles for those that meet the requirements
-%                 %%% Calculating IQR
-%                 qc_ts(tag_no).salt_anom_iqr(:,i) = prctile(interp_tmp_salt_anom(:,overlap), 75, 2) - prctile(interp_tmp_salt_anom(:,overlap), 25, 2);
-%                 qc_ts(tag_no).temp_anom_iqr(:,i) = prctile(interp_tmp_temp_anom(:,overlap), 75, 2) - prctile(interp_tmp_temp_anom(:,overlap), 25, 2);
-%                 qc_ts(tag_no).N2_anom_iqr(:,i) = prctile(interp_tmp_N2_anom(:,overlap), 75, 2) - prctile(interp_tmp_N2_anom(:,overlap), 25, 2);
-%                 qc_ts(tag_no).spice_anom_iqr(:,i) = prctile(interp_tmp_spice_anom(:,overlap), 75, 2) - prctile(interp_tmp_spice_anom(:,overlap), 25, 2);
-%                 qc_ts(tag_no).isopycnal_sep_anom_iqr(:,i) = prctile(interp_tmp_isopycnal_sep_anom(:,overlap), 75, 2) - prctile(interp_tmp_isopycnal_sep_anom(:,overlap), 25, 2);
-% 
-%                 %%% Calculating upper thresholds
-%                 qc_ts(tag_no).salt_anom_lim_hi(:,i) = prctile(interp_tmp_salt_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).salt_anom_iqr(:,i);
-%                 qc_ts(tag_no).temp_anom_lim_hi(:,i) = prctile(interp_tmp_temp_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).temp_anom_iqr(:,i);
-%                 qc_ts(tag_no).N2_anom_lim_hi(:,i) = prctile(interp_tmp_N2_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).N2_anom_iqr(:,i);
-%                 qc_ts(tag_no).spice_anom_lim_hi(:,i) = prctile(interp_tmp_spice_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).spice_anom_iqr(:,i);
-%                 qc_ts(tag_no).isopycnal_sep_anom_lim_hi(:,i) = prctile(interp_tmp_isopycnal_sep_anom(:,overlap), 75, 2) + 1.5*qc_ts(tag_no).isopycnal_sep_anom_iqr(:,i);
-% 
-%                 %%% Calculating lower thresholds
-%                 qc_ts(tag_no).salt_anom_lim_lo(:,i) = prctile(interp_tmp_salt_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).salt_anom_iqr(:,i);
-%                 qc_ts(tag_no).temp_anom_lim_lo(:,i) = prctile(interp_tmp_temp_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).temp_anom_iqr(:,i);
-%                 qc_ts(tag_no).N2_anom_lim_lo(:,i) = prctile(interp_tmp_N2_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).N2_anom_iqr(:,i);
-%                 qc_ts(tag_no).spice_anom_lim_lo(:,i) = prctile(interp_tmp_spice_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).spice_anom_iqr(:,i);
-%                 qc_ts(tag_no).isopycnal_sep_anom_lim_lo(:,i) = prctile(interp_tmp_isopycnal_sep_anom(:,overlap), 25, 2) - 1.5*qc_ts(tag_no).isopycnal_sep_anom_iqr(:,i);
-%             end
-%         end
-    %end
 end
 
 clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_isopycnal_separation_anom_ds
@@ -579,38 +531,6 @@ clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_iso
 %%%%%%%%%%%%%%%%%
 
 for tag_no = test_prof
-%     z = 1;
-%     u = 1;
-%     zz = 1;
-%     uu = 1;
-%     qc_ts(tag_no).pot_cyclones_N2 = [];
-%     qc_ts(tag_no).pot_cyclones_isopycnal_separation = [];
-%     qc_ts(tag_no).pot_anticyclones_N2 = [];
-%     qc_ts(tag_no).pot_anticyclones_isopcyanal_separation = [];
-% 
-%     for i = 1:length(qc_ts(tag_no).cast)
-%         pres_levels = qc_ts(tag_no).pres(:,i) > iqr_settings.min_pres & qc_ts(tag_no).pres(:,i) < iqr_settings.max_pres;
-%         N2_lt = sum(double(qc_ts(tag_no).N2_anom(pres_levels,i) < qc_ts(tag_no).N2_anom_lim_lo(pres_levels,i)));
-%         N2_gt = sum(double(qc_ts(tag_no).N2_anom(pres_levels,i) > qc_ts(tag_no).N2_anom_lim_hi(pres_levels,i)));
-%         isopycnal_sep_lt = sum(double(qc_ts(tag_no).isopycnal_sep_anom(pres_levels,i) < qc_ts(tag_no).isopycnal_sep_anom_lim_lo(pres_levels,i)));
-%         isopycnal_sep_gt = sum(double(qc_ts(tag_no).isopycnal_sep_anom(pres_levels,i) > qc_ts(tag_no).isopycnal_sep_anom_lim_hi(pres_levels,i)));
-%         
-%         if N2_lt > iqr_settings.density_levels
-%             qc_ts(tag_no).pot_anticyclones_N2(z) = i;
-%             z = z + 1;
-%         elseif isopycnal_sep_gt > iqr_settings.density_levels
-%             qc_ts(tag_no).pot_anticyclones_isopycnal_sep(zz) = i;
-%             zz = zz + 1;
-%         elseif N2_gt > iqr_settings.density_levels 
-%             qc_ts(tag_no).pot_cyclones_N2(u) = i;
-%             u = u + 1;
-%         elseif isopycnal_sep_lt > iqr_settings.density_levels
-%             qc_ts(tag_no).pot_cyclones_isopycnal_sep(uu) = i;
-%             uu = uu + 1;
-%         end
-% 
-%     end
-    
     z = 1;
     u = 1;
     zz = 1;
@@ -622,10 +542,10 @@ for tag_no = test_prof
 
     for i = 1:length(qc_ts(tag_no).cast)
         %pres_levels = qc_ts(tag_no).pres(:,i) > iqr_settings.min_pres & qc_ts(tag_no).pres(:,i) < iqr_settings.max_pres;
-        N2_lt = sum(double(qc_ts(tag_no).N2_anom_ds < qc_ts(tag_no).N2_anom_ds_lim_lo));
-        N2_gt = sum(double(qc_ts(tag_no).N2_anom_ds > qc_ts(tag_no).N2_anom_ds_lim_hi));
-        isopycnal_sep_lt = sum(double(qc_ts(tag_no).isopycnal_separation_anom_ds < qc_ts(tag_no).isopycnal_separation_anom_ds_lim_lo));
-        isopycnal_sep_gt = sum(double(qc_ts(tag_no).isopycnal_separation_anom_ds > qc_ts(tag_no).isopycnal_separation_anom_ds_lim_hi));
+        N2_lt = sum(double(qc_ts(tag_no).ds.N2_anom(:,i) < qc_ts(tag_no).ds.N2_anom_lim_lo(:,i)));
+        N2_gt = sum(double(qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i)));
+        isopycnal_sep_lt = sum(double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) < qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo(:,i)));
+        isopycnal_sep_gt = sum(double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i)));
         
         if N2_lt > iqr_settings.density_levels
             qc_ts(tag_no).pot_anticyclones_N2(z) = i;
@@ -646,10 +566,15 @@ end
 
 clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-isopycnals = 0.01;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Plotting time series %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-tag_no = 63;
+isopycnals = 0.05;
+
+tag_no = 1;
 
 figure('Renderer', 'painters', 'Position', [0 0 1000 950])
 sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
@@ -682,9 +607,9 @@ title('Bedrock Topography','FontSize', 12);
 ax2 = subplot(4,1,2);
 hold on
 [~,IB] = unique(datenum(qc_ts(tag_no).time));
-pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).pres(:,1), qc_ts(tag_no).temp(:,IB));
+pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).temp(:,IB));
 set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, ts_density(:,IB), round(min(min(qc_ts(tag_no).density)):isopycnals:max(max(qc_ts(tag_no).density)), 2), 'k');
+[C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, ts_density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
 clabel(C,h,'LabelSpacing',500);
 for i = qc_ts(tag_no).pot_anticyclones_N2
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
@@ -715,9 +640,9 @@ title('Temperature', 'FontSize', 12);
 ax3 = subplot(4,1,3);
 hold on
 [~,IB] = unique(datenum(qc_ts(tag_no).time));
-pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).pres(:,1), qc_ts(tag_no).salt(:,IB));
+pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).salt(:,IB));
 set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).density(:,IB), round(min(min(qc_ts(tag_no).density)):isopycnals:max(max(qc_ts(tag_no).density)), 2), 'k');
+[C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
 clabel(C,h,'LabelSpacing',500);
 for i = qc_ts(tag_no).pot_anticyclones_N2
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
@@ -748,7 +673,7 @@ title('Salinity', 'FontSize', 12);
 ax4 = subplot(4,1,4);
 hold on
 [~,IB] = unique(datenum(qc_ts(tag_no).time));
-pp = pcolor(unique(datenum(qc_ts(tag_no).time)),density_grid, qc_ts(tag_no).isopycnal_separation_ds(:,IB));
+pp = pcolor(unique(datenum(qc_ts(tag_no).time)),density_grid, qc_ts(tag_no).ds.isopycnal_separation(:,IB));
 set(pp, 'EdgeColor', 'none');
 for i = qc_ts(tag_no).pot_anticyclones_N2
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
@@ -765,7 +690,7 @@ end
 %xline(datenum(qc_ts(tag_no).time(84,:)), 'w')
 hold off
 colorbar;
-caxis([min(min(qc_ts(tag_no).isopycnal_separation_ds)) max(max(qc_ts(tag_no).isopycnal_separation_ds))])
+caxis([min(min(qc_ts(tag_no).ds.isopycnal_separation)) max(max(qc_ts(tag_no).ds.isopycnal_separation))])
 set(gca, 'YDir','reverse');
 set(gca, 'Layer','top');
 xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
@@ -774,54 +699,19 @@ ylabel('Pressure (dbar)', 'FontSize', 12);
 ylim([1027.2 1027.9])
 title('Isopycnal Separation', 'FontSize', 12);
 
-% %% N^2 Subplot
-% ax5 = subplot(5,1,5);
-% hold on
-% [~,IB] = unique(datenum(qc_ts(tag_no).time));
-% pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).pres(:,1), qc_ts(tag_no).N2(:,IB));
-% set(pp, 'EdgeColor', 'none');
-% [C,h] = contour(ax5, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).density(:,IB), round(min(min(qc_ts(tag_no).density)):isopycnals:max(max(qc_ts(tag_no).density)), 2), 'k');
-% clabel(C,h,'LabelSpacing',500);
-% for i = qc_ts(tag_no).pot_anticyclones_N2
-%     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-% end
-% for i = qc_ts(tag_no).pot_anticyclones_isopycnal_sep
-%     xline(datenum(qc_ts(tag_no).time(i,:)), 'r--')
-% end
-% for i = qc_ts(tag_no).pot_cyclones_N2
-%     xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
-% end
-% for i = qc_ts(tag_no).pot_cyclones_isopycnal_sep
-%     xline(datenum(qc_ts(tag_no).time(i,:)), 'b--')
-% end
-% hold off
-% cmap = cmocean('thermal');
-% colormap(ax5, cmap);
-% colorbar;
-% caxis([min(min(qc_ts(tag_no).N2)) max(max(qc_ts(tag_no).N2))])
-% set(gca, 'YDir','reverse');
-% set(gca, 'Layer','top');
-% xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-% datetick('x', 'mm/dd/yy', 'keepticks');
-% ylabel('Pressure (dbar)', 'FontSize', 12);
-% ylim([0 500])
-% title('N^2', 'FontSize', 12);
-
 p1 = get(ax1, 'Position');
 p2 = get(ax2, 'Position');
 p3 = get(ax3, 'Position');
 p4 = get(ax4, 'Position');
-%p5 = get(ax5, 'Position');
 
 p2(3) = p1(3);
 p3(3) = p1(3);
 p4(3) = p1(3);
-%p5(3) = p1(3);
 
 set(ax2, 'Position', p2);
 set(ax3, 'Position', p3);
 set(ax4, 'Position', p4);
-%set(ax5, 'Position', p5);
+
 
 clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 %%
@@ -857,10 +747,8 @@ for i = qc_ts(tag_no).pot_anticyclones_isopycnal_sep
     close(fig)
 
 end
-%%
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Gaussian Fit Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -973,5 +861,98 @@ for tag_no = test_prof
     end
 end
 
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Dynamic Height Anomaly Check %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = test_profs
+    
+    flaggedprofs_anticyclones = [qc_ts(tag_no).pot_anticyclones_isopycnal_separation qc_ts(tag_no).pot_anticyclones_N2];
+    flaggedprofs_cyclones = [qc_ts(tag_no).pot_cyclones_isopycnal_separation qc_ts(tag_no).pot_cyclones_N2];
+    
+    for i = flaggedprofs_anticyclones
+        
+        %%% Extract vertical velocity and horizontal structure modes of climatology
+        [qc_ts(tag_no).wmodes_ref(:,i), qc_ts(tag_no).pmodes_ref(:,i), ~, ~] = dynmodes(qc_ts(tag_no).N2_ref(~isnan(qc_ts(tag_no).N2_ref(:,i)),i), meop_profile(i).pres(~isnan(meop_profile(i).ref.N2)),1);
+        
+        %%% Grab pressure levels of mode decomposition, add zero level (surface)
+        meop_profile(i).ref.mode_pres = meop_profile(i).pres(~isnan(meop_profile(i).ref.N2));
+        meop_profile(i).ref.mode_pres = [0;meop_profile(i).ref.mode_pres];
+        
+        % Interpolate 1st baroclinic mode to pressure of SCV cast
+        meop_profile(i).dyn_pres = meop_profile(i).pres(~isnan(meop_profile(i).dyn_height_anom));
+        meop_profile(i).dyn_height_anom = meop_profile(i).dyn_height_anom(~isnan(meop_profile(i).dyn_height_anom));
+        meop_profile(i).ref.BC1_data = meop_profile(i).ref.pmodes(:,1);
+        meop_profile(i).ref.BC1_pres = meop_profile(i).ref.mode_pres;
+        meop_profile(i).ref.BC1_data = interp1(meop_profile(i).ref.mode_pres(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).ref.BC1_data(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).dyn_pres);
+        meop_profile(i).ref.BC1_pres = meop_profile(i).dyn_pres;
+        
+        % Create function that describes residuals between projected BC1 and dyn_height_anom
+        % Exclude data inbetween SCV limits for better fit to first mode
+        dat = [];
+        dat = [meop_profile(i).ref.BC1_data + meop_profile(i).dyn_height_anom];
+        x_o = [];
+        x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
+        x_p = [];
+        x_p = meop_profile(i).ref.BC1_pres(~isnan(dat));
+        x_f = [];
+        x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
+        
+        %     % Get limits
+        %     pl = meop_profile(i).limits.shallow_pres;
+        %     ph = meop_profile(i).limits.deep_pres;
+        %
+        %     % Remove values between upper/lower limits of SCV to avoid bad fit
+        %     ind = [];
+        %     ind = find(pl < x_p & x_p < ph);
+        %     if ind(end) == length(x_p)
+        %         ind = ind(1:end-1);
+        %     end
+        %     x_o(ind) = [];
+        %     x_f(ind) = [];
+        
+        % Remove mixed layer depths (Lynne Talley method, first density greater than 0.03 from sfc value
+        ind      = [];
+        mld_dens = meop_profile(i).sigma0(~isnan(meop_profile(i).sigma0));
+        mld_pres = meop_profile(i).pres(~isnan(meop_profile(i).sigma0));
+        ind      = find(mld_dens > mld_dens(1)+0.03);
+        mld_pres = mld_pres(ind(1));
+        ind      = find(x_p < mld_pres);
+        x_o(ind) = [];
+        x_f(ind) = [];
+        
+        % f simply evaluates a given alpha (modal amplitude) and returns the
+        % difference between the input DHanom profile and the projected 1st mode
+        % We want to restrict our solutions such that the bottom of the projected
+        % profile is equal to the bottom of the DHanom profile
+        % SO let alpha2 = DHanom(end) - alpha*BT1(end)
+        f = [];
+        f = @(alpha) (alpha*x_o - x_f + (x_f(end) - alpha*x_o(end)));
+        x0  = 0.05; % First guess
+        
+        % Solve for best modal amplitude
+        alpha = [];
+        alpha = lsqnonlin(f,x0,[-1],[1],opts1);
+        
+        % Redfine x_o and x_f with full profile
+        x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
+        x_p = meop_profile(i).ref.mode_pres(~isnan(dat));
+        x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
+        
+        % Fix dynamic height anomaly by removing projected 1st mode, add back in barotopic mode
+        meop_profile(i).dyn_height_anom_BC1 = [x_f] - [x_o*alpha + (x_f(end) - alpha*x_o(end))];
+        meop_profile(i).dyn_height_pres_BC1 = meop_profile(i).dyn_pres(~isnan(dat));
+        
+        % Save VMD results
+        meop_profile(i).ref.VMD.x_f      = x_f;
+        meop_profile(i).ref.VMD.x_o      = x_o;
+        meop_profile(i).ref.VMD.x_p      = x_p;
+        meop_profile(i).ref.VMD.alpha    = alpha;
+        
+        % Get mode decomposition results
+        BC1 = meop_profile(i).ref.VMD.x_o*meop_profile(i).ref.VMD.alpha;
+        BC1 = BC1 - BC1(end); %// Set bottom to zero
+    end
+end
