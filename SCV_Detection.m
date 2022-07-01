@@ -13,11 +13,6 @@ qc.min_profiles = 50;   % minimum number of 'good' profiles for a timeseries
 qc.max_time_gap = 5;   % max gap (days) between 'good' profiles before rejection
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% VARIABLE CALCULATION SETTINGS
-var.isopycnal_sep = 0.005;
-var.den_grid_sep = 0.001;
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % REFERENCE PROFILE SETTINGS
 ref_settings.inner_window = 2;
 ref_settings.outer_window = 15; %%% number of days away from profile of interest
@@ -863,41 +858,93 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Dynamic Height Anomaly %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Dynamic Height Anomaly calculation
+for tag_no = test_prof
+    qc_ts(tag_no).ps.dyn_height_anom = gsw_geo_strf_dyn_height(qc_ts(tag_no).ps.salt_absolute, qc_ts(tag_no).ps.temp_conservative, qc_ts(tag_no).ps.pres, 350);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Reference Profiles (Pressure Space) %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = test_prof
+    
+    mean_ind = cell(2,length(qc_ts(tag_no).cast));
+    
+    %%% Finding indices to use for background profile calculation
+    for i = 1:length(qc_ts(tag_no).cast)
+        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
+        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
+        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
+        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
+        
+        %%% Creating special reference profiles for the start and end of
+        %%% the time series
+        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
+        end
+        
+        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
+        end
+        
+    end
+    
+    %%% Creating reference profiles for each of the time series profiles
+    qc_ts(tag_no).ps.ref_N2 = NaN(size(qc_ts(tag_no).ps.N2));
+    
+    for i = 1:length(qc_ts(tag_no).cast)
+        
+        %%% Extracting the profiles to build the reference profile
+        tmp_N2_ps = qc_ts(tag_no).ps.N2(:,[mean_ind{1,i} mean_ind{2,i}]);
+        
+        %%%
+        qc_ts(tag_no).ps.ref_N2(:,i) = median(tmp_N2_ps, 2);
+    end
+    
+    clear tmp_N2_ps
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Dynamic Height Anomaly Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 for tag_no = test_profs
     
+    %%% Extracting flagged profiles
     flaggedprofs_anticyclones = [qc_ts(tag_no).pot_anticyclones_isopycnal_separation qc_ts(tag_no).pot_anticyclones_N2];
     flaggedprofs_cyclones = [qc_ts(tag_no).pot_cyclones_isopycnal_separation qc_ts(tag_no).pot_cyclones_N2];
     
     for i = flaggedprofs_anticyclones
         
         %%% Extract vertical velocity and horizontal structure modes of climatology
-        [qc_ts(tag_no).wmodes_ref(:,i), qc_ts(tag_no).pmodes_ref(:,i), ~, ~] = dynmodes(qc_ts(tag_no).N2_ref(~isnan(qc_ts(tag_no).N2_ref(:,i)),i), meop_profile(i).pres(~isnan(meop_profile(i).ref.N2)),1);
+        [qc_ts(tag_no).dha.ref_wmodes{i}, qc_ts(tag_no).dha.ref_pmodes{i}, ~, ~] = dynmodes(qc_ts(tag_no).ps.ref_N2(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), 1);
         
         %%% Grab pressure levels of mode decomposition, add zero level (surface)
-        meop_profile(i).ref.mode_pres = meop_profile(i).pres(~isnan(meop_profile(i).ref.N2));
-        meop_profile(i).ref.mode_pres = [0;meop_profile(i).ref.mode_pres];
+        qc_ts(tag_no).dha.ref_mode_pres{i} = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i);
+        qc_ts(tag_no).dha.ref_mode_pres{i} = [0;qc_ts(tag_no).dha.ref_mode_pres{i}];
         
         % Interpolate 1st baroclinic mode to pressure of SCV cast
-        meop_profile(i).dyn_pres = meop_profile(i).pres(~isnan(meop_profile(i).dyn_height_anom));
-        meop_profile(i).dyn_height_anom = meop_profile(i).dyn_height_anom(~isnan(meop_profile(i).dyn_height_anom));
-        meop_profile(i).ref.BC1_data = meop_profile(i).ref.pmodes(:,1);
-        meop_profile(i).ref.BC1_pres = meop_profile(i).ref.mode_pres;
-        meop_profile(i).ref.BC1_data = interp1(meop_profile(i).ref.mode_pres(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).ref.BC1_data(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).dyn_pres);
+        qc_ts(tag_no).dha.dyn_pres{i} = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
+        qc_ts(tag_no).dha.dyn_height_anom{i} = qc_ts(tag_no).ps.dyn_height_anom(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
+        qc_ts(tag_no).dha.ref_BC1_data(i) = qc_ts(tag_no).dha.ref_pmodes(:,1);
+        qc_ts(tag_no).dha.ref_BC1_pres{i} = qc_ts(tag_no).dha.ref_mode_pres{i};
+        qc_ts(tag_no).dha.ref_BC1_data{i} = interp1(qc_ts(tag_no).dha.ref_mode_pres{1,1}(~isnan(qc_ts(tag_no).dha.ref_BC1_data{1,1})),meop_profile(i).ref.BC1_data(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).dyn_pres);
         meop_profile(i).ref.BC1_pres = meop_profile(i).dyn_pres;
         
         % Create function that describes residuals between projected BC1 and dyn_height_anom
         % Exclude data inbetween SCV limits for better fit to first mode
-        dat = [];
-        dat = [meop_profile(i).ref.BC1_data + meop_profile(i).dyn_height_anom];
-        x_o = [];
+        dat = meop_profile(i).ref.BC1_data + meop_profile(i).dyn_height_anom;
         x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
-        x_p = [];
         x_p = meop_profile(i).ref.BC1_pres(~isnan(dat));
-        x_f = [];
         x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
         
         %     % Get limits
