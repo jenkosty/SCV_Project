@@ -917,6 +917,9 @@ end
 %%% Dynamic Height Anomaly Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% Script to apply dynmodes routine to recover the vertical velocity and horizontal structure modes
+opts1 = optimset('display','off','UseParallel',false);
+
 for tag_no = test_profs
     
     %%% Extracting flagged profiles
@@ -926,27 +929,31 @@ for tag_no = test_profs
     for i = flaggedprofs_anticyclones
         
         %%% Extract vertical velocity and horizontal structure modes of climatology
-        [qc_ts(tag_no).dha.ref_wmodes{i}, qc_ts(tag_no).dha.ref_pmodes{i}, ~, ~] = dynmodes(qc_ts(tag_no).ps.ref_N2(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), 1);
-        
+        [meop_profile(i).ref.wmodes, meop_profile(i).ref.pmodes, ~, ~] = dynmodes(qc_ts(tag_no).ps.ref_N2(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i),1);
+
         %%% Grab pressure levels of mode decomposition, add zero level (surface)
-        qc_ts(tag_no).dha.ref_mode_pres{i} = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i);
-        qc_ts(tag_no).dha.ref_mode_pres{i} = [0;qc_ts(tag_no).dha.ref_mode_pres{i}];
-        
+        meop_profile(i).ref.mode_pres = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i);
+        meop_profile(i).ref.mode_pres = [0;meop_profile(i).ref.mode_pres];
+
         % Interpolate 1st baroclinic mode to pressure of SCV cast
-        qc_ts(tag_no).dha.dyn_pres{i} = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
-        qc_ts(tag_no).dha.dyn_height_anom{i} = qc_ts(tag_no).ps.dyn_height_anom(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
-        qc_ts(tag_no).dha.ref_BC1_data(i) = qc_ts(tag_no).dha.ref_pmodes(:,1);
-        qc_ts(tag_no).dha.ref_BC1_pres{i} = qc_ts(tag_no).dha.ref_mode_pres{i};
-        qc_ts(tag_no).dha.ref_BC1_data{i} = interp1(qc_ts(tag_no).dha.ref_mode_pres{1,1}(~isnan(qc_ts(tag_no).dha.ref_BC1_data{1,1})),meop_profile(i).ref.BC1_data(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).dyn_pres);
+        meop_profile(i).dyn_pres = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
+        meop_profile(i).dyn_height_anom = qc_ts(tag_no).ps.dyn_height_anom(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
+        meop_profile(i).ref.BC1_data = meop_profile(i).ref.pmodes(:,1);
+        meop_profile(i).ref.BC1_pres = meop_profile(i).ref.mode_pres;
+        meop_profile(i).ref.BC1_data = interp1(meop_profile(i).ref.mode_pres(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).ref.BC1_data(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).dyn_pres);
         meop_profile(i).ref.BC1_pres = meop_profile(i).dyn_pres;
-        
+
         % Create function that describes residuals between projected BC1 and dyn_height_anom
         % Exclude data inbetween SCV limits for better fit to first mode
-        dat = meop_profile(i).ref.BC1_data + meop_profile(i).dyn_height_anom;
+        dat = [];
+        dat = [meop_profile(i).ref.BC1_data + meop_profile(i).dyn_height_anom];
+        x_o = [];
         x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
+        x_p = [];
         x_p = meop_profile(i).ref.BC1_pres(~isnan(dat));
+        x_f = [];
         x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
-        
+
         %     % Get limits
         %     pl = meop_profile(i).limits.shallow_pres;
         %     ph = meop_profile(i).limits.deep_pres;
@@ -959,17 +966,17 @@ for tag_no = test_profs
         %     end
         %     x_o(ind) = [];
         %     x_f(ind) = [];
-        
+
         % Remove mixed layer depths (Lynne Talley method, first density greater than 0.03 from sfc value
         ind      = [];
-        mld_dens = meop_profile(i).sigma0(~isnan(meop_profile(i).sigma0));
-        mld_pres = meop_profile(i).pres(~isnan(meop_profile(i).sigma0));
+        mld_dens = qc_ts(tag_no).ps.sigma0(~isnan(qc_ts(tag_no).ps.sigma0(:,i)),i);
+        mld_pres = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.sigma0(:,i)),i);
         ind      = find(mld_dens > mld_dens(1)+0.03);
         mld_pres = mld_pres(ind(1));
         ind      = find(x_p < mld_pres);
         x_o(ind) = [];
         x_f(ind) = [];
-        
+
         % f simply evaluates a given alpha (modal amplitude) and returns the
         % difference between the input DHanom profile and the projected 1st mode
         % We want to restrict our solutions such that the bottom of the projected
@@ -978,28 +985,53 @@ for tag_no = test_profs
         f = [];
         f = @(alpha) (alpha*x_o - x_f + (x_f(end) - alpha*x_o(end)));
         x0  = 0.05; % First guess
-        
+
         % Solve for best modal amplitude
         alpha = [];
         alpha = lsqnonlin(f,x0,[-1],[1],opts1);
-        
+
         % Redfine x_o and x_f with full profile
         x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
-        x_p = meop_profile(i).ref.mode_pres(~isnan(dat));
+        %x_p = meop_profile(i).ref.mode_pres(~isnan(dat));
         x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
-        
+
         % Fix dynamic height anomaly by removing projected 1st mode, add back in barotopic mode
         meop_profile(i).dyn_height_anom_BC1 = [x_f] - [x_o*alpha + (x_f(end) - alpha*x_o(end))];
         meop_profile(i).dyn_height_pres_BC1 = meop_profile(i).dyn_pres(~isnan(dat));
-        
+
         % Save VMD results
         meop_profile(i).ref.VMD.x_f      = x_f;
         meop_profile(i).ref.VMD.x_o      = x_o;
         meop_profile(i).ref.VMD.x_p      = x_p;
         meop_profile(i).ref.VMD.alpha    = alpha;
-        
+
         % Get mode decomposition results
         BC1 = meop_profile(i).ref.VMD.x_o*meop_profile(i).ref.VMD.alpha;
         BC1 = BC1 - BC1(end); %// Set bottom to zero
+        
+        % Plot results
+        figure();
+        subplot(121)
+        plot(-meop_profile(i).ref.pmodes(:,1),meop_profile(i).ref.mode_pres,'r','linewidth',2)
+        hold on; grid on; set(gca,'YDir','Reverse')
+        plot(meop_profile(i).ref.pmodes(:,2),meop_profile(i).ref.mode_pres,'b','linewidth',2)
+        plot(meop_profile(i).ref.pmodes(:,3),meop_profile(i).ref.mode_pres,'g','linewidth',2)
+        plot(meop_profile(i).ref.pmodes(:,4),meop_profile(i).ref.mode_pres,'y','linewidth',2)
+        plot(meop_profile(i).ref.pmodes(:,5),meop_profile(i).ref.mode_pres,'color',[0.5 0 0.5],'linewidth',2)
+        title({'\it\bf\fontsize{8}\fontname{Helvetica}Horizontal Velocity','Modes'})
+        set(gca,'XTick',[0])
+        ylabel('Pressure (dbar)')
+        [l,icons] = legend('Mode-1','Mode-2','Mode-3','Mode-4','Mode-5','location','southeast');
+        l.Box = 'off';
+
+        subplot(122)
+        plot(meop_profile(i).dyn_height_anom,meop_profile(i).dyn_pres,'k','linewidth',2)
+        hold on; grid on; set(gca,'YDir','Reverse')
+        plot(BC1,meop_profile(i).ref.VMD.x_p,':r','linewidth',2)
+        plot(meop_profile(i).dyn_height_anom_BC1,meop_profile(i).dyn_height_pres_BC1,':k','linewidth',2)
+        [l,icons] = legend('DH''_{orig}','BC1_{fit}','DH''_{adj}','location','southeast');
+        xlabel('m^2/s^2')
+        title({'\it\bf\fontsize{8}\fontname{Helvetica}Dynamic Height','Anomaly'})
+        set(gca,'YTickLabel',[])
     end
 end
