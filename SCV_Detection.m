@@ -234,7 +234,7 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Variables (Pressure Space) %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-test_prof = 60:70;
+test_prof = 1:10;
 
 for tag_no = test_prof
     
@@ -350,33 +350,63 @@ for tag_no = test_prof
 end
    
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Finding Indices to Build Reference Profiles %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = test_prof
+    
+    mean_ind = cell(2,length(qc_ts(tag_no).cast));
+    
+    %%% Finding indices to use for background profile calculation
+    for i = 1:length(qc_ts(tag_no).cast)
+        
+        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
+        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
+        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
+        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
+        
+        %%% Creating special reference profiles for the start and end of
+        %%% the time series
+        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
+        end
+        
+        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
+            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
+        end
+        
+        %%% Removing profiles with extreme bathymetry changes
+        mean_ind{1,i}(qc_ts(tag_no).bathymetry(mean_ind{1,i}) > qc_ts(tag_no).bathymetry(i) - 0.1*qc_ts(tag_no).bathymetry(i)) = [];
+        mean_ind{1,i}(qc_ts(tag_no).bathymetry(mean_ind{1,i}) < qc_ts(tag_no).bathymetry(i) + 0.1*qc_ts(tag_no).bathymetry(i)) = [];
+        
+        mean_ind{2,i}(qc_ts(tag_no).bathymetry(mean_ind{2,i}) > qc_ts(tag_no).bathymetry(i) - 0.1*qc_ts(tag_no).bathymetry(i)) = [];
+        mean_ind{2,i}(qc_ts(tag_no).bathymetry(mean_ind{2,i}) < qc_ts(tag_no).bathymetry(i) + 0.1*qc_ts(tag_no).bathymetry(i)) = [];
+        
+        %%% Checking number of profiles
+        if length([mean_ind{1,i} mean_ind{2,i}]) < 15
+            mean_ind{1,i} = [];
+            mean_ind{2,i} = [];
+        end
+        
+    end
+    
+    %%% Saving indices
+    qc_ts(tag_no).ref_ind = mean_ind;
+    
+end
+
+clear mean_ind
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Building Reference Profiles %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 for tag_no = test_prof
     
-     mean_ind = cell(2,length(qc_ts(tag_no).cast));
-
-    %%% Finding indices to use for background profile calculation
-    for i = 1:length(qc_ts(tag_no).cast)
-        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
-        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
-        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
-        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
-
-        %%% Creating special reference profiles for the start and end of
-        %%% the time series
-        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
-        end
-
-        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
-        end
-
-    end
-
     %%% Creating reference profiles for each of the time series profiles
     qc_ts(tag_no).ds.ref_salt = NaN(size(qc_ts(tag_no).ds.salt));
     qc_ts(tag_no).ds.ref_temp = NaN(size(qc_ts(tag_no).ds.temp));
@@ -387,11 +417,11 @@ for tag_no = test_prof
     for i = 1:length(qc_ts(tag_no).cast)
     
         %%% Extracting the profiles to build the reference profile
-        tmp_salt_ds = qc_ts(tag_no).ds.salt(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_temp_ds = qc_ts(tag_no).ds.temp(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_N2_ds = qc_ts(tag_no).ds.N2(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_spice_ds = qc_ts(tag_no).ds.spice(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_isopycnal_separation_ds = qc_ts(tag_no).ds.isopycnal_separation(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt_ds = qc_ts(tag_no).ds.salt(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_temp_ds = qc_ts(tag_no).ds.temp(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_N2_ds = qc_ts(tag_no).ds.N2(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_spice_ds = qc_ts(tag_no).ds.spice(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_isopycnal_separation_ds = qc_ts(tag_no).ds.isopycnal_separation(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
 
         %%% 
         qc_ts(tag_no).ds.ref_salt(:,i) = median(tmp_salt_ds, 2);
@@ -438,27 +468,6 @@ end
 
 for tag_no = test_prof
 
-    mean_ind = cell(2,length(qc_ts(tag_no).cast));
-
-    %%% Finding indices to use for background profile calculation
-    for i = 1:length(qc_ts(tag_no).cast)
-        mean_ind(1,i) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
-        mean_ind{1,i}(mean_ind{1,i} < 1) = []; %%% Making sure indices remain within ts boundaries
-        mean_ind(2,i) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
-        mean_ind{2,i}(mean_ind{2,i} > length(qc_ts(tag_no).cast)) = []; %%% Making sure indices remain within ts boundaries
-
-        %%% Creating special reference profiles for the start and end of
-        %%% the time series
-        if (length(mean_ind{1,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{2,i} = [mean_ind{2,i} max(mean_ind{2,i})+1:max(mean_ind{2,i})+(ref_settings.outer_window)-(ref_settings.inner_window-1)-length(mean_ind{1,i})];
-        end
-
-        if (length(mean_ind{2,i}) < ref_settings.outer_window - ref_settings.inner_window+1)
-            mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
-        end
-
-    end
-
     %%% Creating iqr profiles for each of the time series profiles
     qc_ts(tag_no).ds.salt_anom_iqr = NaN(size(qc_ts(tag_no).ds.salt));
     qc_ts(tag_no).ds.temp_anom_iqr = NaN(size(qc_ts(tag_no).ds.temp));
@@ -483,11 +492,11 @@ for tag_no = test_prof
     for i = 1:length(qc_ts(tag_no).cast)
 
         %%% Extracting the assigned anomaly profiles
-        tmp_salt_anom_ds = qc_ts(tag_no).ds.salt_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_temp_anom_ds = qc_ts(tag_no).ds.temp_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_N2_anom_ds = qc_ts(tag_no).ds.N2_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_spice_anom_ds = qc_ts(tag_no).ds.spice_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
-        tmp_isopycnal_separation_anom_ds = qc_ts(tag_no).ds.isopycnal_separation_anom(:,[mean_ind{1,i} mean_ind{2,i}]);
+        tmp_salt_anom_ds = qc_ts(tag_no).ds.salt_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_temp_anom_ds = qc_ts(tag_no).ds.temp_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_N2_anom_ds = qc_ts(tag_no).ds.N2_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_spice_anom_ds = qc_ts(tag_no).ds.spice_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_isopycnal_separation_anom_ds = qc_ts(tag_no).ds.isopycnal_separation_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
         
         %%% Calculating IQR
         qc_ts(tag_no).ds.salt_anom_iqr(:,i) = prctile(tmp_salt_anom_ds, 75, 2) - prctile(tmp_salt_anom_ds, 25, 2);
@@ -515,10 +524,11 @@ end
 clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_isopycnal_separation_anom_ds
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%
 %%% IQR Check %%%
 %%%%%%%%%%%%%%%%%
-%%
+
 for tag_no = test_prof
     z = 1;
     u = 1;
@@ -565,7 +575,7 @@ clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i
 
 isopycnals = 0.01;
 
-tag_no = 65;
+tag_no = 63;
 
 figure('Renderer', 'painters', 'Position', [0 0 1000 950])
 sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
