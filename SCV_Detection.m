@@ -234,7 +234,7 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Variables (Pressure Space) %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-test_prof = 199;
+test_prof = 116;
 
 for tag_no = test_prof
     
@@ -255,6 +255,7 @@ for tag_no = test_prof
 
     %%% Calculating density
     tmp_pres_space.density = gsw_rho(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, zeros(size(tmp_pres_space.salt)));
+    %%% Check density is ascending with depth
 
     %%% Calculating Potential Density Anomaly
     tmp_pres_space.sigma0 = gsw_sigma0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
@@ -279,6 +280,28 @@ end
 clear N2 mid_pres
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Checking for Density Inversions %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% for tag_no = test_prof
+%     for i =  1%1:length(qc_ts(tag_no).cast)
+%         if issorted(qc_ts(tag_no).ps.sigma0(:,i), 'ascend') == 0
+%             sigma0_orig = qc_ts(tag_no).ps.sigma0(:,i);
+%             sigma0_sort = sort(sigma0_orig, 'ascend');
+%             if max(abs(sigma0_orig-sigma0_sort))> 0.1 %obj.info(i).density_thresh
+%                 qc_ts(tag_no).ps.sigma0(:,i) = NaN;
+%             else
+%                 qc_ts(tag_no).ps.sigma0(:,i) = sort(qc_ts(tag_no).ps.sigma0(:,i));
+%             end
+%         end
+%     end
+% end
+                
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Interpolating to Density Grid %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -716,9 +739,9 @@ clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-tag_no = 199;
-prof_no = 179;
-isopycnals = 0.01;
+tag_no = 91;
+prof_no = 103;
+isopycnals = 0.05;
 
 figure('Renderer', 'painters', 'Position', [0 0 1000 950])
 sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
@@ -767,8 +790,10 @@ ylabel('Pressure (dbar)', 'FontSize', 12);
 ylim([0 500])
 title('Salinity', 'FontSize', 12);
 
+linkaxes([ax1 ax2]);
+
 %%% Spice Profile
-subplot(4,3,7)
+ax3 = subplot(4,3,7);
 hold on
 plot(qc_ts(tag_no).ds.spice(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'r', 'DisplayName', 'Profile')
 plot(qc_ts(tag_no).ds.ref_spice(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'k', 'DisplayName', 'Reference')
@@ -778,9 +803,9 @@ hold off
 legend('Location', 'best')
 
 %%% Isopycnal Separation Profile
-subplot(4,3,8)
+ax4 = subplot(4,3,8);
 hold on
-plot(qc_ts(tag_no).ds.isopycnal_separation(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'ro-', 'DisplayName', 'Profile')
+plot(qc_ts(tag_no).ds.isopycnal_separation(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'r', 'DisplayName', 'Profile')
 plot(qc_ts(tag_no).ds.ref_isopycnal_separation(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'k','DisplayName', 'Reference')
 set(gca, 'YDir', 'reverse');
 xlabel('Isopycnal Separation');
@@ -788,7 +813,7 @@ hold off
 legend('Location', 'best')
 
 %%% N2 Profile
-subplot(4,3,9)
+ax5 = subplot(4,3,9);
 hold on
 plot(qc_ts(tag_no).ds.N2(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'r', 'DisplayName', 'Profile')
 plot(qc_ts(tag_no).ds.ref_N2(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'k','DisplayName', 'Reference')
@@ -798,7 +823,7 @@ hold off
 legend('Location', 'best')
 
 %%% Spice Anomaly Profile
-subplot(4,3,10)
+ax6 = subplot(4,3,10);
 hold on
 plot(qc_ts(tag_no).ds.spice_anom(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'b', 'DisplayName', 'Profile')
 set(gca, 'YDir', 'reverse');
@@ -806,7 +831,7 @@ xlabel('Spice Anomaly');
 hold off
 
 %%% Isopycnal Separation Anomaly Profile
-subplot(4,3,11)
+ax7 = subplot(4,3,11);
 hold on
 plot(qc_ts(tag_no).ds.isopycnal_separation_anom(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'b', 'DisplayName', 'Profile')
 set(gca, 'YDir', 'reverse');
@@ -814,13 +839,14 @@ xlabel('Isopycnal Separation Anomaly');
 hold off
 
 %%% N2 Anomaly Profile
-subplot(4,3,12)
+ax8 = subplot(4,3,12);
 hold on
 plot(qc_ts(tag_no).ds.N2_anom(:,prof_no), qc_ts(tag_no).ds.pres(:,prof_no), 'b', 'DisplayName', 'Profile')
 set(gca, 'YDir', 'reverse');
 xlabel('N^2 Anomaly');
 hold off
 
+linkaxes([ax3 ax4 ax5 ax6 ax7 ax8], 'y')
 
 clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 
@@ -846,7 +872,7 @@ for tag_no = test_prof
             k = k + 1;
         end
         
-        qc_ts(tag_no).bot_pres(i) = min(max_pres)-50;
+        qc_ts(tag_no).bot_pres(i) = min([min(max_pres), max(qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.salt(:,i)),i))]);
         
         qc_ts(tag_no).ps.dyn_height_anom(:,i) = gsw_geo_strf_dyn_height(qc_ts(tag_no).ps.salt_absolute(:,i), qc_ts(tag_no).ps.temp_conservative(:,i), qc_ts(tag_no).ps.pres(:,i), qc_ts(tag_no).bot_pres(i));
     end
@@ -907,13 +933,13 @@ end
 % Script to apply dynmodes routine to recover the vertical velocity and horizontal structure modes
 opts1 = optimset('display','off','UseParallel',false);
 
-for tag_no = 65%test_profs
+for tag_no = test_prof
     
     %%% Extracting flagged profiles
     flaggedprofs_anticyclones = [qc_ts(tag_no).pot_anticyclones.isopycnal_separation qc_ts(tag_no).pot_anticyclones.N2];
     flaggedprofs_cyclones = [qc_ts(tag_no).pot_cyclones.isopycnal_separation qc_ts(tag_no).pot_cyclones.N2];
     
-    for i = flaggedprofs_anticyclones
+    for i = 78%flaggedprofs_anticyclones
         
         %%% Extract vertical velocity and horizontal structure modes of climatology
         [meop_profile(i).ref.wmodes, meop_profile(i).ref.pmodes, ~, ~] = dynmodes(qc_ts(tag_no).ps.ref_N2(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i),1);
