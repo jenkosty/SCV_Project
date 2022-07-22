@@ -9,7 +9,7 @@ RTOPO.bedrock_topography = double(ncread('/Users/jenkosty/Research/detectSCV-mai
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % TIME SERIES QUALITY CONTROL THRESHOLDS
 qc.min_depth    = 350; % minimum depth to be considered a 'good' profile 
-qc.min_profiles = 50;   % minimum number of 'good' profiles for a timeseries 
+qc.min_profiles = 50;   % minimum number of 'good' profiles for a time series 
 qc.max_time_gap = 5;   % max gap (days) between 'good' profiles before rejection
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -248,6 +248,11 @@ for tag_no = test_prof
     %%% structure
     tmp_pres_space.salt = qc_ts(tag_no).salt;
     tmp_pres_space.temp = qc_ts(tag_no).temp;
+    
+    %%% Calculating bottom pressure
+    for i = 1:length(qc_ts(tag_no).cast)
+        tmp_pres_space.bot_pres(i) = max(tmp_pres_space.pres(~isnan(tmp_pres_space.salt(:,i)),i));     
+    end
 
     %%% Calculating absolute salinity and conservative temperature
     tmp_pres_space.salt_absolute = gsw_SA_from_SP(tmp_pres_space.salt, depth_grid, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
@@ -285,19 +290,32 @@ clear N2 mid_pres
 %%% Checking for Density Inversions %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% for tag_no = test_prof
-%     for i =  1%1:length(qc_ts(tag_no).cast)
-%         if issorted(qc_ts(tag_no).ps.sigma0(:,i), 'ascend') == 0
-%             sigma0_orig = qc_ts(tag_no).ps.sigma0(:,i);
-%             sigma0_sort = sort(sigma0_orig, 'ascend');
-%             if max(abs(sigma0_orig-sigma0_sort))> 0.1 %obj.info(i).density_thresh
-%                 qc_ts(tag_no).ps.sigma0(:,i) = NaN;
-%             else
-%                 qc_ts(tag_no).ps.sigma0(:,i) = sort(qc_ts(tag_no).ps.sigma0(:,i));
-%             end
-%         end
-%     end
-% end
+for tag_no = test_prof
+    
+    qc_ts(tag_no).rejected = strings(size(qc_ts(tag_no).cast));
+    
+    for i =  1:length(qc_ts(tag_no).cast)
+        
+        %%% Checking to see if density profile is ascending with depth
+        if issorted(qc_ts(tag_no).ps.sigma0(:,i), 'ascend') == 0
+            
+            %%% If not, sorting the profile
+            sigma0_orig = qc_ts(tag_no).ps.sigma0(:,i);
+            sigma0_sort = sort(sigma0_orig, 'ascend');
+            
+            %%% Checking max difference between sorted and original density
+            %%% profile. If the max difference it too large, the profile
+            %%% will be rejected. If the max difference is small, the
+            %%% profile will be replaced with the sorted version. 
+            if max(abs(sigma0_orig-sigma0_sort)) > 0.5
+                qc_ts(tag_no).ps.sigma0(:,i) = NaN;  
+                qc_ts(tag_no).rejected(i) = "Density Inversion";
+            else
+                qc_ts(tag_no).ps.sigma0(:,i) = sort(qc_ts(tag_no).ps.sigma0(:,i));
+            end
+        end
+    end
+end
                 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
