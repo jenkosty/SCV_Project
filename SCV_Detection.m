@@ -24,7 +24,7 @@ ref_settings.top_depth = 100; %%% depth at which there must still be at least x 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IQR CHECK SETTINGS
-iqr_settings.density_levels = 1;
+iqr_settings.density_levels = 2;
 iqr_settings.min_pres = 100;
 iqr_settings.max_pres = 500;
 iqr_settings.no_profiles = 15;
@@ -391,7 +391,7 @@ for tag_no = test_prof
 end
    
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Finding Indices to Build Reference Profiles %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -418,6 +418,7 @@ for tag_no = test_prof
             mean_ind{1,i} = sort([mean_ind{1,i} min(mean_ind{1,i})-1:-1:min(mean_ind{1,i})-(ref_settings.outer_window)+(ref_settings.inner_window-1)+length(mean_ind{2,i})]);
         end
         
+        
 %         %%% Removing profiles with extreme bathymetry changes
 %         mean_ind{1,i}(qc_ts(tag_no).bathymetry(mean_ind{1,i}) > qc_ts(tag_no).bathymetry(i) - 0.1*qc_ts(tag_no).bathymetry(i)) = [];
 %         mean_ind{1,i}(qc_ts(tag_no).bathymetry(mean_ind{1,i}) < qc_ts(tag_no).bathymetry(i) + 0.1*qc_ts(tag_no).bathymetry(i)) = [];
@@ -441,7 +442,7 @@ end
 clear mean_ind
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Building Reference Profiles %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -465,18 +466,41 @@ for tag_no = test_prof
         tmp_isopycnal_separation_ds = qc_ts(tag_no).ds.isopycnal_separation(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
 
         %%% 
-        qc_ts(tag_no).ds.ref_salt(:,i) = median(tmp_salt_ds, 2);
-        qc_ts(tag_no).ds.ref_temp(:,i) = median(tmp_temp_ds, 2);
-        qc_ts(tag_no).ds.ref_N2(:,i) = median(tmp_N2_ds, 2);
-        qc_ts(tag_no).ds.ref_spice(:,i) = median(tmp_spice_ds, 2);
-        qc_ts(tag_no).ds.ref_isopycnal_separation(:,i) = median(tmp_isopycnal_separation_ds, 2);
+        for j = 1:size(tmp_salt_ds, 1)
+            tmp_salt_ds_level = tmp_salt_ds(j,~isnan(tmp_salt_ds(j,:)));
+            tmp_temp_ds_level = tmp_temp_ds(j,~isnan(tmp_temp_ds(j,:)));
+            tmp_spice_ds_level = tmp_spice_ds(j,~isnan(tmp_spice_ds(j,:)));
+            if length(tmp_salt_ds_level) > 0.75*size(tmp_salt_ds,2)
+                qc_ts(tag_no).ds.ref_salt(j,i) = median(tmp_salt_ds_level);
+                qc_ts(tag_no).ds.ref_temp(j,i) = median(tmp_temp_ds_level);
+                qc_ts(tag_no).ds.ref_spice(j,i) = median(tmp_spice_ds_level); 
+            end
+            
+            
+            tmp_N2_ds_level = tmp_N2_ds(j,~isnan(tmp_N2_ds(j,:)));
+            if length(tmp_N2_ds_level) > 0.75*size(tmp_N2_ds,2)
+                qc_ts(tag_no).ds.ref_N2(j,i) = median(tmp_N2_ds_level);  
+            end
+            
+            tmp_isopycnal_separation_ds_level = tmp_isopycnal_separation_ds(j,~isnan(tmp_isopycnal_separation_ds(j,:)));
+            if length(tmp_isopycnal_separation_ds_level) > 0.75*size(tmp_isopycnal_separation_ds,2)
+                qc_ts(tag_no).ds.ref_isopycnal_separation(j,i) = median(tmp_isopycnal_separation_ds_level);  
+            end
+        end
+        
+%         
+%         qc_ts(tag_no).ds.ref_salt(:,i) = median(tmp_salt_ds, 2);
+%         qc_ts(tag_no).ds.ref_temp(:,i) = median(tmp_temp_ds, 2);
+%         qc_ts(tag_no).ds.ref_N2(:,i) = median(tmp_N2_ds, 2);
+%         qc_ts(tag_no).ds.ref_spice(:,i) = median(tmp_spice_ds, 2);
+%         qc_ts(tag_no).ds.ref_isopycnal_separation(:,i) = median(tmp_isopycnal_separation_ds, 2);
         
     end
 
 end
 
 clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating Anomalies %%%
@@ -617,7 +641,7 @@ clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i
 
 isopycnals = 0.01;
 
-tag_no = 63;
+tag_no = 116;
 
 figure('Renderer', 'painters', 'Position', [0 0 1000 950])
 sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
@@ -755,6 +779,15 @@ set(ax4, 'Position', p4);
 
 clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+figure()
+for i = 165%qc_ts(tag_no).pot_anticyclones.isopycnal_separation(61)
+    hold on
+    plot(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'k')
+    plot(qc_ts(tag_no).ds.isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'r')
+end
+set(gca, 'YDir', 'reverse');
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 tag_no = 91;
