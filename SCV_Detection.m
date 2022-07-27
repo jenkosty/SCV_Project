@@ -465,7 +465,9 @@ for tag_no = test_prof
         tmp_spice_ds = qc_ts(tag_no).ds.spice(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
         tmp_isopycnal_separation_ds = qc_ts(tag_no).ds.isopycnal_separation(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
 
-        %%% 
+        %%% Calculating a climatological value for each density level if at least
+        %%% 75% of the potential reference profiles have data at said
+        %%% level
         for j = 1:size(tmp_salt_ds, 1)
             tmp_salt_ds_level = tmp_salt_ds(j,~isnan(tmp_salt_ds(j,:)));
             tmp_temp_ds_level = tmp_temp_ds(j,~isnan(tmp_temp_ds(j,:)));
@@ -476,7 +478,6 @@ for tag_no = test_prof
                 qc_ts(tag_no).ds.ref_spice(j,i) = median(tmp_spice_ds_level); 
             end
             
-            
             tmp_N2_ds_level = tmp_N2_ds(j,~isnan(tmp_N2_ds(j,:)));
             if length(tmp_N2_ds_level) > 0.75*size(tmp_N2_ds,2)
                 qc_ts(tag_no).ds.ref_N2(j,i) = median(tmp_N2_ds_level);  
@@ -486,20 +487,13 @@ for tag_no = test_prof
             if length(tmp_isopycnal_separation_ds_level) > 0.75*size(tmp_isopycnal_separation_ds,2)
                 qc_ts(tag_no).ds.ref_isopycnal_separation(j,i) = median(tmp_isopycnal_separation_ds_level);  
             end
-        end
-        
-%         
-%         qc_ts(tag_no).ds.ref_salt(:,i) = median(tmp_salt_ds, 2);
-%         qc_ts(tag_no).ds.ref_temp(:,i) = median(tmp_temp_ds, 2);
-%         qc_ts(tag_no).ds.ref_N2(:,i) = median(tmp_N2_ds, 2);
-%         qc_ts(tag_no).ds.ref_spice(:,i) = median(tmp_spice_ds, 2);
-%         qc_ts(tag_no).ds.ref_isopycnal_separation(:,i) = median(tmp_isopycnal_separation_ds, 2);
-        
+        end 
     end
 
 end
 
-clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds
+clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds tmp_salt_ds_level ...
+    tmp_temp_ds_level tmp_spice_ds_level tmp_N2_ds_level tmp_isopycnal_separation_ds_level
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -527,7 +521,7 @@ for tag_no = test_prof
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating IQR %%%
 %%%%%%%%%%%%%%%%%%%%%%%
@@ -559,30 +553,35 @@ for tag_no = test_prof
 
         %%% Extracting the assigned anomaly profiles
         tmp_salt_anom_ds = qc_ts(tag_no).ds.salt_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_salt_anom_ds(isnan(qc_ts(tag_no).ds.ref_salt(:,i)),:) = NaN;
         tmp_temp_anom_ds = qc_ts(tag_no).ds.temp_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        tmp_N2_anom_ds = qc_ts(tag_no).ds.N2_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_temp_anom_ds(isnan(qc_ts(tag_no).ds.ref_temp(:,i)),:) = NaN;
         tmp_spice_anom_ds = qc_ts(tag_no).ds.spice_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_spice_anom_ds(isnan(qc_ts(tag_no).ds.ref_spice(:,i)),:) = NaN;
+        tmp_N2_anom_ds = qc_ts(tag_no).ds.N2_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        tmp_N2_anom_ds(isnan(qc_ts(tag_no).ds.ref_N2(:,i)),:) = NaN;
         tmp_isopycnal_separation_anom_ds = qc_ts(tag_no).ds.isopycnal_separation_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        
+        tmp_isopycnal_separation_anom_ds(isnan(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i)),:) = NaN;
+              
         %%% Calculating IQR
         qc_ts(tag_no).ds.salt_anom_iqr(:,i) = prctile(tmp_salt_anom_ds, 75, 2) - prctile(tmp_salt_anom_ds, 25, 2);
         qc_ts(tag_no).ds.temp_anom_iqr(:,i) = prctile(tmp_temp_anom_ds, 75, 2) - prctile(tmp_temp_anom_ds, 25, 2);
-        qc_ts(tag_no).ds.N2_anom_iqr(:,i) = prctile(tmp_N2_anom_ds, 75, 2) - prctile(tmp_N2_anom_ds, 25, 2);
         qc_ts(tag_no).ds.spice_anom_iqr(:,i) = prctile(tmp_spice_anom_ds, 75, 2) - prctile(tmp_spice_anom_ds, 25, 2);
+        qc_ts(tag_no).ds.N2_anom_iqr(:,i) = prctile(tmp_N2_anom_ds, 75, 2) - prctile(tmp_N2_anom_ds, 25, 2);
         qc_ts(tag_no).ds.isopycnal_separation_anom_iqr(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 75, 2) - prctile(tmp_isopycnal_separation_anom_ds, 25, 2);
         
         %%% Calculating upper thresholds
         qc_ts(tag_no).ds.salt_anom_lim_hi(:,i) = prctile(tmp_salt_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.salt_anom_iqr(:,i);
         qc_ts(tag_no).ds.temp_anom_lim_hi(:,i) = prctile(tmp_temp_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.temp_anom_iqr(:,i);
-        qc_ts(tag_no).ds.N2_anom_lim_hi(:,i) = prctile(tmp_N2_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.N2_anom_iqr(:,i);
         qc_ts(tag_no).ds.spice_anom_lim_hi(:,i) = prctile(tmp_spice_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.spice_anom_iqr(:,i);
+        qc_ts(tag_no).ds.N2_anom_lim_hi(:,i) = prctile(tmp_N2_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.N2_anom_iqr(:,i);
         qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 75, 2) + 1.5*qc_ts(tag_no).ds.isopycnal_separation_anom_iqr(:,i);
         
         %%% Calculating lower thresholds
         qc_ts(tag_no).ds.salt_anom_lim_lo(:,i) = prctile(tmp_salt_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.salt_anom_iqr(:,i);
         qc_ts(tag_no).ds.temp_anom_lim_lo(:,i) = prctile(tmp_temp_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.temp_anom_iqr(:,i);
-        qc_ts(tag_no).ds.N2_anom_lim_lo(:,i) = prctile(tmp_N2_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.N2_anom_iqr(:,i);
         qc_ts(tag_no).ds.spice_anom_lim_lo(:,i) = prctile(tmp_spice_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.spice_anom_iqr(:,i);
+        qc_ts(tag_no).ds.N2_anom_lim_lo(:,i) = prctile(tmp_N2_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.N2_anom_iqr(:,i);
         qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo(:,i) = prctile(tmp_isopycnal_separation_anom_ds, 25, 2) - 1.5*qc_ts(tag_no).ds.isopycnal_separation_anom_iqr(:,i);
     end
 end
@@ -606,32 +605,58 @@ for tag_no = test_prof
     pot_anticyclones.isopycnal_separation = [];
     
     for i = 1:length(qc_ts(tag_no).cast)
-        %pres_levels = qc_ts(tag_no).pres(:,i) > iqr_settings.min_pres & qc_ts(tag_no).pres(:,i) < iqr_settings.max_pres;
-        N2_lt = sum(double(qc_ts(tag_no).ds.N2_anom(:,i) < qc_ts(tag_no).ds.N2_anom_lim_lo(:,i)));
-        N2_gt = sum(double(qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i)));
-        isopycnal_sep_lt = sum(double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) < qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo(:,i)));
-        isopycnal_sep_gt = sum(double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i)));
+%         N2_lt = sum(double(qc_ts(tag_no).ds.N2_anom(:,i) < qc_ts(tag_no).ds.N2_anom_lim_lo(:,i)));
+%         N2_gt = sum(double(qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i)));
         
-        if N2_lt > iqr_settings.density_levels
-            pot_anticyclones.N2(z) = i;
-            z = z + 1;
-        elseif isopycnal_sep_gt > iqr_settings.density_levels
-            pot_anticyclones.isopycnal_separation(zz) = i;
-            zz = zz + 1;
-        elseif N2_gt > iqr_settings.density_levels 
-            pot_cyclones.N2(u) = i;
+        
+        %%% Checking isopycnal separation
+        isopycnal_separation_check = qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i);
+        if sum(double(isopycnal_separation_check)) > iqr_settings.density_levels
+            
+            %%% Checking pressure levels
+            pres_levels = qc_ts(tag_no).ds.pres(isopycnal_separation_check,i);
+            
+            %%% Checking number of continuous anomalies
+            y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) > 100))' 0]==0))-1;
+            y(y==0) = [];
+            
+            if max(pres_levels) < iqr_settings.min_pres
+                continue 
+            elseif min(pres_levels) > iqr_settings.max_pres
+                continue
+            elseif max(pres_levels) - min(pres_levels) < 100
+                continue
+            elseif max(y) < 5
+                continue
+            end
+            
+            
+            pot_anticyclones.isopycnal_separation(u) = i;
             u = u + 1;
-        elseif isopycnal_sep_lt > iqr_settings.density_levels
-            pot_cyclones.isopycnal_separation(uu) = i;
-            uu = uu + 1;
+            
+            %%% Checking continuity of 
+            
         end
+            
+%         isopycnal_sep_gt = sum(double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i)));
+%         
+%         if N2_lt > iqr_settings.density_levels
+%             pot_anticyclones.N2(z) = i;
+%             z = z + 1;
+%         elseif isopycnal_sep_gt > iqr_settings.density_levels
+%             pot_anticyclones.isopycnal_separation(zz) = i;
+%             zz = zz + 1;
+%         elseif N2_gt > iqr_settings.density_levels 
+%             pot_cyclones.N2(u) = i;
+%             u = u + 1;
+%         end
     end
     
     qc_ts(tag_no).pot_cyclones = pot_cyclones;
     qc_ts(tag_no).pot_anticyclones = pot_anticyclones;
 end
 
-clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i 
+clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i pot_cyclones pot_anticyclones
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -781,13 +806,20 @@ clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-figure()
-for i = 165%qc_ts(tag_no).pot_anticyclones.isopycnal_separation(61)
+for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
+    figure()
     hold on
-    plot(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'k')
-    plot(qc_ts(tag_no).ds.isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'r')
+    plot(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'k')
+    plot(qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo(:,i), qc_ts(tag_no).ds.pres(:,i), 'r')
+    plot(qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i), qc_ts(tag_no).ds.pres(:,i), 'g')
+    set(gca, 'YDir', 'reverse');
+    
+    pause 
+    
+    close all
+    
 end
-set(gca, 'YDir', 'reverse');
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 tag_no = 91;
