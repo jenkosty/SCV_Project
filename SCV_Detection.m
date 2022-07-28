@@ -553,15 +553,15 @@ for tag_no = test_prof
 
         %%% Extracting the assigned anomaly profiles
         tmp_salt_anom_ds = qc_ts(tag_no).ds.salt_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        tmp_salt_anom_ds(isnan(qc_ts(tag_no).ds.ref_salt(:,i)),:) = NaN;
+        tmp_salt_anom_ds(sum(double(~isnan(tmp_salt_anom_ds)), 2) < 0.75*size(tmp_salt_anom_ds,2),:) = NaN;
         tmp_temp_anom_ds = qc_ts(tag_no).ds.temp_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        tmp_temp_anom_ds(isnan(qc_ts(tag_no).ds.ref_temp(:,i)),:) = NaN;
+        tmp_temp_anom_ds(sum(double(~isnan(tmp_temp_anom_ds)), 2) < 0.75*size(tmp_temp_anom_ds,2),:) = NaN;
         tmp_spice_anom_ds = qc_ts(tag_no).ds.spice_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        tmp_spice_anom_ds(isnan(qc_ts(tag_no).ds.ref_spice(:,i)),:) = NaN;
+        tmp_spice_anom_ds(sum(double(~isnan(tmp_spice_anom_ds)), 2) < 0.75*size(tmp_spice_anom_ds,2),:) = NaN;
         tmp_N2_anom_ds = qc_ts(tag_no).ds.N2_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        tmp_N2_anom_ds(isnan(qc_ts(tag_no).ds.ref_N2(:,i)),:) = NaN;
+        tmp_N2_anom_ds(sum(double(~isnan(tmp_N2_anom_ds)), 2) < 0.75*size(tmp_N2_anom_ds,2),:) = NaN;
         tmp_isopycnal_separation_anom_ds = qc_ts(tag_no).ds.isopycnal_separation_anom(:,[qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        tmp_isopycnal_separation_anom_ds(isnan(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i)),:) = NaN;
+        tmp_isopycnal_separation_anom_ds(sum(double(~isnan(tmp_isopycnal_separation_anom_ds)), 2) < 0.75*size(tmp_isopycnal_separation_anom_ds,2),:) = NaN;
               
         %%% Calculating IQR
         qc_ts(tag_no).ds.salt_anom_iqr(:,i) = prctile(tmp_salt_anom_ds, 75, 2) - prctile(tmp_salt_anom_ds, 25, 2);
@@ -630,16 +630,36 @@ for tag_no = test_prof
                 continue
             end
             
-            
             pot_anticyclones.isopycnal_separation(u) = i;
-            u = u + 1;
-            
-            %%% Checking continuity of 
-            
+            u = u + 1; 
         end
+        
+        N2_check = qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i);
+        if sum(double(N2_check)) > iqr_settings.density_levels
             
-%         isopycnal_sep_gt = sum(double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i)));
-%         
+            %%% Checking pressure levels
+            pres_levels = qc_ts(tag_no).ds.pres(N2_check,i);
+            
+            %%% Checking number of continuous anomalies
+            y = diff(find([0 double(N2_check(qc_ts(tag_no).ds.pres(:,i) > 100))' 0]==0))-1;
+            y(y==0) = [];
+            
+            if max(pres_levels) < iqr_settings.min_pres
+                continue 
+            elseif min(pres_levels) > iqr_settings.max_pres
+                continue
+            elseif max(pres_levels) - min(pres_levels) < 100
+                continue
+            elseif max(y) < 5
+                continue
+            end
+            
+            pot_cyclones.N2(uu) = i;
+            uu = uu + 1; 
+        end
+        
+            
+
 %         if N2_lt > iqr_settings.density_levels
 %             pot_anticyclones.N2(z) = i;
 %             z = z + 1;
@@ -664,7 +684,7 @@ clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i pot_
 %%% Plotting time series %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-isopycnals = 0.01;
+isopycnals = 0.05;
 
 tag_no = 116;
 
@@ -820,6 +840,20 @@ for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
     
 end
 
+%%
+for i = qc_ts(tag_no).pot_cyclones.N2
+    figure()
+    hold on
+    plot(qc_ts(tag_no).ds.N2_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'k')
+    plot(qc_ts(tag_no).ds.N2_anom_lim_lo(:,i), qc_ts(tag_no).ds.pres(:,i), 'r')
+    plot(qc_ts(tag_no).ds.N2_anom_lim_hi(:,i), qc_ts(tag_no).ds.pres(:,i), 'g')
+    set(gca, 'YDir', 'reverse');
+    
+    pause 
+    
+    close all
+    
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 tag_no = 91;
@@ -934,6 +968,117 @@ linkaxes([ax3 ax4 ax5 ax6 ax7 ax8], 'y')
 clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%% Gaussian Fit Check %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Grab amplitude and depth of max spice anomaly
+spike.A  = max(qc_ts(tag_no).ds.spice_anom(:,i));
+spike.P = qc_ts(tag_no).ds.pres(find(qc_ts(tag_no).ds.spice_anom(:,i) == spike.A),i);
+
+% Get range of allowable parameters
+prng = [-0.2:0.05:0.2];  % allow pressure peak to vary between +- 20% of height
+arng  = [0.8:0.05:1.2];  % allow amplitude range of +- 20% of spice anomaly peak
+hrng  = [10:10:500];     % allow height to vary  between 50 and 850m
+
+% Set up matrix for least-squared error calculation
+lse = nan(length(prng),length(arng),length(hrng));
+
+% Go through all possible combinations
+hcnt = 0; % reset h counter
+for h = hrng
+	hcnt = hcnt + 1; % increase 'h' counter
+	acnt = 0;        % reset 'a' counter
+	for a = arng
+		acnt = acnt + 1; % increase 'a' counter
+		pcnt = 0;        % reset 'p' counter
+		for p = prng	
+			pcnt = pcnt + 1; % increase 'p'
+			
+			% Center Gaussian model around spike.P + p*h
+			zo = [];
+			zo = double(qc_ts(tag_no).ds.pres(:,i) - [spike.P + p*(4)*sqrt(h^2/2)]);
+			sa = double(qc_ts(tag_no).ds.spice_anom(:,i));
+
+			% Reduce to where data exists
+			dat      = sa + zo;
+			sa       = sa(~isnan(dat));
+			zo       = zo(~isnan(dat));
+
+			% Generate gaussian model using updated amplitude, center, and height	
+			gauss = (spike.A*a)*exp((-(zo.^2))/(h.^2));
+
+			% Get gaussian limits for testing
+			pl = [spike.P + p*(4)*sqrt(h^2/2)] - 2*sqrt((h^2)/2); pl  = round(pl/10)*10;
+			ph = [spike.P + p*(4)*sqrt(h^2/2)] + 2*sqrt((h^2)/2); ph  = round(ph/10)*10;
+
+			% Grab results
+			zp     = [zo + spike.P + p*(4)*sqrt(h^2/2)];
+			dataX  = qc_ts(tag_no).ds.spice_anom(pl <= qc_ts(tag_no).ds.pres(:,i) & qc_ts(tag_no).ds.pres(:,i) <= ph, i);
+			dataY  = qc_ts(tag_no).ds.pres(pl <= qc_ts(tag_no).ds.pres(:,i) & qc_ts(tag_no).ds.pres(:,i) <= ph, i);
+            dataY  = round(dataY, 4);
+			modelX = gauss(pl <= zp & zp <= ph);
+			modelY = zp(pl <= zp & zp <= ph);
+            modelY = round(modelY, 4);
+
+			% Check that depths of model and data intersect
+			if length(dataX) < length(modelX) | length(modelX) < length(dataX)
+				[c,~,~] = intersect(dataY,modelY);
+				ind     = find(min(c) <= dataY & dataY <= max(c));
+				dataX   = dataX(ind);   dataY = dataY(ind);
+				ind     = find(min(c) <= modelY & modelY <= max(c));
+				modelX  = modelX(ind); modelY = modelY(ind);
+			end
+
+			% Calculate R^2
+			R2(pcnt,acnt,hcnt) = corr2(dataX,modelX).^2;
+
+			% Save least-squared error results (ignore if bad R2 value (i.e. < 0.5))
+			if R2(pcnt,acnt,hcnt) < 0.5
+				lse(pcnt,acnt,hcnt) = NaN;
+			else	
+				lse(pcnt,acnt,hcnt) = sum([dataX-modelX].^2);
+			end
+		end
+	end
+end
+
+% Find best zo,A,H combo according to lse
+[minlse,idxlse] = min(lse(:));
+[a,b,c] = ind2sub(size(lse),idxlse);
+
+% Update parameters
+results.A    = spike.A*arng(b);
+results.H    = hrng(c);
+results.P    = spike.P + prng(a)*(4)*sqrt(results.H^2/2);
+results.Plow = spike.P - 2*sqrt((results.H^2)/2);
+results.Phih = spike.P + 2*sqrt((results.H^2)/2);
+results.Plow = round(results.Plow/10)*10;
+results.Phih = round(results.Phih/10)*10;
+
+% Update zo,zp,gauss for final model
+zo    = double(qc_ts(tag_no).ds.pres(:,i) - [results.P]);
+zp    = zo + results.P;
+gauss = results.A*exp((-(zo.^2))/(results.H.^2)); 
+
+% Save final model
+results.X = gauss;
+results.Y = zp;
+
+% Plot
+if (1)
+	close all
+	figure(3)
+	plot(qc_ts(tag_no).ds.spice_anom(:,i),qc_ts(tag_no).ds.pres(:,i),'k','linewidth',2)
+	hold on; grid on; set(gca,'YDir','Reverse')
+	plot(results.X,results.Y,'Color','r','LineWidth',3,'LineStyle','-.')
+	xlabel('kg/m^3')
+	ylabel('dbar');
+	set(gca,'fontsize',10,'fontname','Helvetica')
+end
+
+
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating Dynamic Height Anomaly %%%
