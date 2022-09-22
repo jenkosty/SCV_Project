@@ -262,7 +262,7 @@ for tag_no = test_prof
     
     %%% Calculating bottom pressure
     for i = 1:length(qc_ts(tag_no).cast)
-        tmp_pres_space.bot_pres(i) = max(tmp_pres_space.pres(~isnan(tmp_pres_space.salt(:,i)),i));     
+        tmp_pres_space.prof_bot_pres(i) = max(tmp_pres_space.pres(~isnan(tmp_pres_space.salt(:,i)),i));     
     end
 
     %%% Calculating absolute salinity and conservative temperature
@@ -799,7 +799,7 @@ end
 % set(gca,'fontsize',10,'fontname','Helvetica')
 
 clear a acnt arng b c dat dataX dataY gauss hcnt hrng idxlse ind lse minlse modelX ...
-    modelY p pcnt ph pl prng sa zo zp u spike R2 i
+    modelY p pcnt ph pl prng sa zo zp u spike R2 i results
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -809,7 +809,7 @@ clear a acnt arng b c dat dataX dataY gauss hcnt hrng idxlse ind lse minlse mode
 %%% Dynamic Height Anomaly calculation
 for tag_no = test_prof
     
-    qc_ts(tag_no).bot_pres = NaN(size(qc_ts(tag_no).cast));
+    qc_ts(tag_no).ps.dha_bot_pres = NaN(size(qc_ts(tag_no).cast));
     
     for i = 1:length(qc_ts(tag_no).cast)
         ref_ind = [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}];
@@ -822,7 +822,7 @@ for tag_no = test_prof
             k = k + 1;
         end
         
-        qc_ts(tag_no).bot_pres(i) = min([min(max_pres), max(qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.salt(:,i)),i))]);
+        qc_ts(tag_no).ps.dha_bot_pres(i) = min([min(max_pres), qc_ts(tag_no).ps.prof_bot_pres]);
         
         qc_ts(tag_no).ps.dyn_height_anom(:,i) = gsw_geo_strf_dyn_height(qc_ts(tag_no).ps.salt_absolute(:,i), qc_ts(tag_no).ps.temp_conservative(:,i), qc_ts(tag_no).ps.pres(:,i), 0); %qc_ts(tag_no).bot_pres(i));
     end
@@ -914,6 +914,7 @@ for tag_no = test_prof
         end
         x_o(ind) = [];
         x_f(ind) = [];
+        %x_p(ind) = [];
 
         % Remove mixed layer depths (Lynne Talley method, first density greater than 0.03 from sfc value
         ind      = [];
@@ -943,7 +944,7 @@ for tag_no = test_prof
 
         % Redfine x_o and x_f with full profile
         x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
-        %x_p = meop_profile(i).ref.mode_pres(~isnan(dat));
+        x_p = meop_profile(i).ref.BC1_pres(~isnan(dat)); %%% NOTE: Changed from meop_profile(i).ref.mode_pres - need to check with Danny
         x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
 
         % Fix dynamic height anomaly by removing projected 1st mode, add back in barotopic mode
@@ -972,7 +973,7 @@ for tag_no = test_prof
             end
         end
            
-%         % Plot results
+        % Plot results
 %         figure();
 %         subplot(121)
 %         plot(-meop_profile(i).ref.pmodes(:,1),meop_profile(i).ref.mode_pres,'r','linewidth',2)
@@ -1007,7 +1008,7 @@ for tag_no = test_prof
 end
 
     clear x0 x_f x_o x_p ref_orig pl ph mld_dens mld_pres l ind icons f dat BC1 argo alpha flaggedprofs_anticyclones...
-        flaggedprofs_cyclones pot_anticyclones pot_cyclones
+        flaggedprofs_cyclones pot_anticyclones pot_cyclones local_max j opts1 u
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
