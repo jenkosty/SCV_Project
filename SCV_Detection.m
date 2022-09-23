@@ -1,4 +1,4 @@
-%%% Loading MEOP data
+ %%% Loading MEOP data
 % load("SealData_All.mat");
 
 %%% Loading bathymetry data
@@ -276,7 +276,7 @@ for tag_no = test_prof
     tmp_pres_space.sigma0 = gsw_sigma0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
     
     %%% Calculating neutral density
-    %[tmp_pres_space.gamma_n,~,~] = gamma_n(tmp_pres_space.salt, tmp_pres_space.temp, tmp_pres_space.pres, qc_ts(tag_no).lon+180, qc_ts(tag_no).lat);
+    [tmp_pres_space.gamma_n,~,~] = eos80_legacy_gamma_n(tmp_pres_space.salt, tmp_pres_space.temp, tmp_pres_space.pres, qc_ts(tag_no).lon', qc_ts(tag_no).lat');
 
     %%% Calculating N^2
     [N2, mid_pres] = gsw_Nsquared(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, qc_ts(tag_no).lat .* ones(size(tmp_pres_space.salt)));
@@ -303,6 +303,7 @@ end
 clear N2 mid_pres
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Checking for Density Inversions %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -310,11 +311,12 @@ clear N2 mid_pres
 for tag_no = test_prof
     
     qc_ts(tag_no).rejected = strings(size(qc_ts(tag_no).cast));
-    qc_ts(tag_no).max_density_inversion = NaN(size(qc_ts(tag_no).cast));
+    qc_ts(tag_no).ps.max_sigma0_inversion = NaN(size(qc_ts(tag_no).cast));
+    qc_ts(tag_no).ps.max_gamma_n_inversion = NaN(size(qc_ts(tag_no).cast));
     
     for i =  1:length(qc_ts(tag_no).cast)
         
-        %%% Checking to see if density profile is ascending with depth
+        %%% Checking to see if sigma0 profile is ascending with depth
         if issorted(qc_ts(tag_no).ps.sigma0(~isnan(qc_ts(tag_no).ps.sigma0(:,i)),i), 'ascend') == 0
             
             %%% If not, sorting the profile
@@ -330,7 +332,7 @@ for tag_no = test_prof
             %%% will be rejected. If the max difference is small, the
             %%% profile will be replaced with the sorted version. 
          
-            qc_ts(tag_no).max_density_inversion(:,i) = max(abs(sigma0_orig-sigma0_sort));
+            qc_ts(tag_no).ps.max_sigma0_inversion(:,i) = max(abs(sigma0_orig-sigma0_sort));
        
             if max(abs(sigma0_orig-sigma0_sort)) > 0.1
                 qc_ts(tag_no).ps.sigma0(:,i) = NaN;
@@ -338,14 +340,41 @@ for tag_no = test_prof
             else
                 qc_ts(tag_no).ps.sigma0(:,i) = sigma0_sort;
             end
+           
+        end
+        
+        %%% Checking to see if gamma_n profile is ascending with depth
+        if issorted(qc_ts(tag_no).ps.gamma_n(~isnan(qc_ts(tag_no).ps.gamma_n(:,i)),i), 'ascend') == 0
+            
+            %%% If not, sorting the profile
+            gamma_n_orig = qc_ts(tag_no).ps.gamma_n(:,i);
+            idx = ~isnan(gamma_n_orig);
+            gamma_n_sort_1 = sort(gamma_n_orig, 'ascend');
+            gamma_n_sort_1(isnan(gamma_n_sort_1)) = [];
+            gamma_n_sort = gamma_n_orig;
+            gamma_n_sort(idx) = gamma_n_sort_1;
 
+            %%% Checking max difference between sorted and original density
+            %%% profile. If the max difference it too large, the profile
+            %%% will be rejected. If the max difference is small, the
+            %%% profile will be replaced with the sorted version. 
+         
+            qc_ts(tag_no).ps.max_gamma_n_inversion(:,i) = max(abs(gamma_n_orig-gamma_n_sort));
+       
+            if max(abs(gamma_n_orig-gamma_n_sort)) > 0.1
+                qc_ts(tag_no).ps.gamma_n(:,i) = NaN;
+                qc_ts(tag_no).rejected(i) = "Density Inversion";
+            else
+                qc_ts(tag_no).ps.gamma_n(:,i) = gamma_n_sort;
+            end
             
         end
     end
 end
 
-clear sigma0_orig sigma0_sort idx sigma0_sort_1 i 
+clear sigma0_orig sigma0_sort idx sigma0_sort_1 i gamma_n_orig gamma_n_sort idx gamma_n_sort_1 i
 
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Interpolating to Density Grid %%%
@@ -499,7 +528,9 @@ for tag_no = test_prof
             if length(tmp_isopycnal_separation_ds_level) > 0.75*size(tmp_isopycnal_separation_ds,2)
                 qc_ts(tag_no).ds.ref_isopycnal_separation(j,i) = median(tmp_isopycnal_separation_ds_level);  
             end
-        end 
+        end
+        
+        
     end
 
 end
@@ -608,10 +639,10 @@ clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_iso
 for tag_no = test_prof
     u = 1;
     uu = 1;
-    pot_cyclones.N2 = [];
-    pot_cyclones.isopycnal_separation = [];
-    pot_anticyclones.N2 = [];
-    pot_anticyclones.isopycnal_separation = [];
+    cyclones.N2 = [];
+    cyclones.isopycnal_separation = [];
+    anticyclones.N2 = [];
+    anticyclones.isopycnal_separation = [];
     
     for i = 1:length(qc_ts(tag_no).cast)
 
@@ -627,16 +658,20 @@ for tag_no = test_prof
             y(y==0) = [];
             
             if max(pres_levels) < iqr_settings.min_pres
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Too Shallow";
                 continue 
             elseif min(pres_levels) > iqr_settings.max_pres
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Too Deep";
                 continue
             elseif max(pres_levels) - min(pres_levels) < 100
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Not Tall Enough";
                 continue
             elseif max(y) < 4
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Does Not Cross Enough Density Surfaces";
                 continue
             end
             
-            pot_anticyclones.isopycnal_separation(u) = i;
+            anticyclones.isopycnal_separation(u) = i;
             u = u + 1; 
         end
         
@@ -652,30 +687,34 @@ for tag_no = test_prof
             y(y==0) = [];
             
             if max(pres_levels) < iqr_settings.min_pres
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Too Shallow";
                 continue 
             elseif min(pres_levels) > iqr_settings.max_pres
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Too Deep";
                 continue
             elseif max(pres_levels) - min(pres_levels) < 100
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Not Tall Enough";
                 continue
             elseif max(y) < 4
+                qc_ts(tag_no).rejected(i) = "IQR Anomaly Does Not Cross Enough Density Surfaces";
                 continue
             end
             
-            pot_cyclones.N2(uu) = i;
+            cyclones.N2(uu) = i;
             uu = uu + 1; 
         end
         
     end
     
-    qc_ts(tag_no).pot_cyclones = pot_cyclones;
-    qc_ts(tag_no).pot_anticyclones = pot_anticyclones;
+    qc_ts(tag_no).cyclones = cyclones;
+    qc_ts(tag_no).anticyclones = anticyclones;
 end
 
-clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i pot_cyclones pot_anticyclones ...
+clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cyclones anticyclones ...
     y isopycnal_separation_check N2_check i
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Gaussian Fit Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -683,9 +722,9 @@ clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i pot_
 for tag_no = test_prof
     
     u = 1;
-    qc_ts(tag_no).pot_anticyclones.gaussian = [];
+    qc_ts(tag_no).anticyclones.gaussian = [];
     
-    for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
+    for i = qc_ts(tag_no).anticyclones.isopycnal_separation
         
         % Grab amplitude and depth of max spice anomaly
         spike.A  = max(qc_ts(tag_no).ds.spice_anom(:,i));
@@ -782,11 +821,14 @@ for tag_no = test_prof
         results.Y = zp;
         
         if minlse < 0.05 && results.A > 0.1
-            qc_ts(tag_no).pot_anticyclones.gaussian(u) = i;
+            qc_ts(tag_no).anticyclones.gaussian(u) = i;
             u = u +1;
             
             qc_ts(tag_no).gauss_fit(i) = results;
+        else 
+            qc_ts(tag_no).rejected(i) = "Failed Gaussian Fit Test";
         end
+        
     end
 end
 
@@ -800,7 +842,7 @@ end
 
 clear a acnt arng b c dat dataX dataY gauss hcnt hrng idxlse ind lse minlse modelX ...
     modelY p pcnt ph pl prng sa zo zp u spike R2 i results
-%%
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating Dynamic Height Anomaly %%%
@@ -861,7 +903,7 @@ for tag_no = test_prof
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Dynamic Height Anomaly Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -871,10 +913,10 @@ opts1 = optimset('display','off','UseParallel',false);
 
 for tag_no = test_prof
     
-    qc_ts(tag_no).pot_anticyclones.dha = [];
+    qc_ts(tag_no).anticyclones.dha = [];
     u = 1;
     
-    for i = qc_ts(tag_no).pot_anticyclones.gaussian
+    for i = qc_ts(tag_no).anticyclones.gaussian
         
         %%% Extract vertical velocity and horizontal structure modes of climatology
         [meop_profile(i).ref.wmodes, meop_profile(i).ref.pmodes, ~, ~] = dynmodes(qc_ts(tag_no).ps.ref_N2(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i),1);
@@ -967,9 +1009,11 @@ for tag_no = test_prof
         for j = find(local_max)'
             if meop_profile(i).dyn_height_anom_BC1(j) > 0 && meop_profile(i).dyn_height_pres_BC1(j) > qc_ts(tag_no).gauss_fit(i).Plow ...
                     && meop_profile(i).dyn_height_pres_BC1(j) < qc_ts(tag_no).gauss_fit(i).Phih
-                qc_ts(tag_no).pot_anticyclones.dha(u) = i;
+                qc_ts(tag_no).anticyclones.dha(u) = i;
                 u = u + 1;
                 break
+            else
+                qc_ts(tag_no).rejected(i) = "Failed DHA Test";
             end
         end
            
@@ -1008,7 +1052,7 @@ for tag_no = test_prof
 end
 
     clear x0 x_f x_o x_p ref_orig pl ph mld_dens mld_pres l ind icons f dat BC1 argo alpha flaggedprofs_anticyclones...
-        flaggedprofs_cyclones pot_anticyclones pot_cyclones local_max j opts1 u
+        flaggedprofs_cyclones anticyclones pot_cyclones local_max j opts1 u
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
