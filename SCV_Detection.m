@@ -24,10 +24,11 @@ ref_settings.top_depth = 100; %%% depth at which there must still be at least x 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IQR CHECK SETTINGS
-iqr_settings.density_levels = 1;
-iqr_settings.min_pres = 100;
-iqr_settings.max_pres = 500;
-iqr_settings.no_profiles = 15;
+iqr.min_pres = 100;
+iqr.max_pres = 500;
+iqr.min_thickness = 100;
+iqr.min_density_levels = 4;
+iqr.no_profiles = 15;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -652,26 +653,47 @@ for tag_no = test_prof
 
         %%% Checking isopycnal separation
         isopycnal_separation_check = qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i);
-        if sum(double(isopycnal_separation_check)) > iqr_settings.density_levels
+        if sum(double(isopycnal_separation_check)) > iqr.min_density_levels
             
-            %%% Checking pressure levels
+            %%% Extracting pressure levels
             pres_levels = qc_ts(tag_no).ds.pres(isopycnal_separation_check,i);
             
-            %%% Checking number of continuous anomalies
-            y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) > 50))' 0]==0))-1;
+            %%% Extracting number of continuous anomalies
+            y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres))' 0]==0))-1;
             y(y==0) = [];
             
-            if max(pres_levels) < iqr_settings.min_pres
+            %%% Indices at which isopyncal separation check passes
+            A = find(isopycnal_separation_check .* qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres);
+    
+            %%% Creating cells for continuous blocks of indices
+            B = cell(1, length(y));
+            for j = 1:length(y)
+                B{1,j} = NaN(y(j),1);
+            end
+            
+            %%% Filling in cells with indices
+            u = 1;
+            while u <= length(B)
+                for j = 1:length(y)
+                    for k = 1:length(B{1,j})
+                        B{1,j}(k,1) = A(u);
+                        u = u+1;
+                    end
+                end
+            end
+            
+                
+            if length(B{1,j}) < iqr.min_density_levels
+                qc_ts(tag_no).rejected(i) = "Non-Continuous Isopycnals (IQR)";
+                continue
+            elseif max(qc_ts(tag_no).ds.pres(B{1,j},i)) < iqr.min_pres
                 qc_ts(tag_no).rejected(i) = "Too Shallow (IQR)";
-                continue 
-            elseif min(pres_levels) > iqr_settings.max_pres
+                continue
+            elseif min(pres_levels) > iqr.max_pres
                 qc_ts(tag_no).rejected(i) = "Too Deep (IQR)";
                 continue
-            elseif max(pres_levels) - min(pres_levels) < 100
+            elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
                 qc_ts(tag_no).rejected(i) = "Too Short (IQR)";
-                continue
-            elseif max(y) < 4
-                qc_ts(tag_no).rejected(i) = "Non-Continuous Isopycnals (IQR)";
                 continue
             end
             
@@ -687,7 +709,7 @@ for tag_no = test_prof
         
         %%% Checking N^2
         N2_check = qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i);
-        if sum(double(N2_check)) > iqr_settings.density_levels
+        if sum(double(N2_check)) > iqr.density_levels
             
             %%% Checking pressure levels
             pres_levels = qc_ts(tag_no).ds.pres(N2_check,i);
@@ -696,10 +718,10 @@ for tag_no = test_prof
             y = diff(find([0 double(N2_check(qc_ts(tag_no).ds.pres(:,i) > 100))' 0]==0))-1;
             y(y==0) = [];
             
-            if max(pres_levels) < iqr_settings.min_pres
+            if max(pres_levels) < iqr.min_pres
                 qc_ts(tag_no).rejected(i) = "Too Shallow (IQR)";
                 continue 
-            elseif min(pres_levels) > iqr_settings.max_pres
+            elseif min(pres_levels) > iqr.max_pres
                 qc_ts(tag_no).rejected(i) = "Too Deep (IQR)";
                 continue
             elseif max(pres_levels) - min(pres_levels) < 100
@@ -738,6 +760,7 @@ for tag_no = test_prof
     
     qc_ts(tag_no).gauss_fit = [];
         
+    %%% Anticyclones, spicy
     u = 1;
     qc_ts(tag_no).anticyclones.spicy.gaussian = [];
     for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
@@ -748,6 +771,7 @@ for tag_no = test_prof
         end
     end
     
+    %%% Cyclones, spicy
     u = 1;
     qc_ts(tag_no).cyclones.spicy.gaussian = [];
     for i = qc_ts(tag_no).cyclones.spicy.N2
@@ -758,6 +782,7 @@ for tag_no = test_prof
         end
     end
     
+    %%% Anticyclones, minty
     u = 1;
     qc_ts(tag_no).anticyclones.minty.gaussian = [];
     for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
@@ -768,6 +793,7 @@ for tag_no = test_prof
         end
     end
     
+    %%% Cyclones, minty
     u = 1;
     qc_ts(tag_no).cyclones.minty.gaussian = [];
     for i = qc_ts(tag_no).cyclones.minty.N2
@@ -846,10 +872,26 @@ end
 
 % Script to apply dynmodes routine to recover the vertical velocity and horizontal structure modes
 
-
 for tag_no = test_prof
+    
+    %%% Anticyclones, spicy
     for i = qc_ts(tag_no).anticyclones.spicy.gaussian
         qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+    end
+    
+    %%% Cyclones, spicy
+    for i = qc_ts(tag_no).cyclones.spicy.gaussian
+        qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+    end
+    
+    %%% Anticyclones, minty
+    for i = qc_ts(tag_no).anticyclones.minty.gaussian
+        qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+    end
+    
+    %%% Cyclones, minty
+    for i = qc_ts(tag_no).cyclones.minty.gaussian
+        qc_ts(tag_no).dha_check{i} = sha_check(qc_ts, tag_no, i);
     end
 end
 
