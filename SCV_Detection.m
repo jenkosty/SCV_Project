@@ -248,12 +248,17 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 
 %test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
 
-test_prof = 116;
+test_prof = 99;
 
 for tag_no = test_prof
     
     %%% Calculating Bathymetry
     qc_ts(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
+    
+    %%% Creating arrays to hold the indexes of rejected profiles and the
+    %%% reasons for rejection
+    qc_ts(tag_no).rejected = NaN(size(qc_ts(tag_no).cast));
+    qc_ts(tag_no).reason = strings(size(qc_ts(tag_no).cast));
 
     %%% Creating pressure space structure
     tmp_pres_space.pres = depth_grid .* ones(size(qc_ts(tag_no).salt));
@@ -313,7 +318,6 @@ clear N2 mid_pres
 
 for tag_no = test_prof
     
-    qc_ts(tag_no).rejected = strings(size(qc_ts(tag_no).cast));
     qc_ts(tag_no).ps.max_sigma0_inversion = NaN(size(qc_ts(tag_no).cast));
     qc_ts(tag_no).ps.max_gamma_n_inversion = NaN(size(qc_ts(tag_no).cast));
     
@@ -339,7 +343,8 @@ for tag_no = test_prof
        
             if max(abs(sigma0_orig-sigma0_sort)) > 0.1
                 qc_ts(tag_no).ps.sigma0(:,i) = NaN;
-                qc_ts(tag_no).rejected(i) = "Density Inversion";
+                qc_ts(tag_no).rejected(i) = 1;
+                qc_ts(tag_no).reason(i) = "Density Inversion";
             else
                 qc_ts(tag_no).ps.sigma0(:,i) = sigma0_sort;
             end
@@ -634,29 +639,30 @@ clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_iso
     i
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
+
 %%%%%%%%%%%%%%%%%
 %%% IQR Check %%%
 %%%%%%%%%%%%%%%%%
+
+disp('------------------');
+disp('Starting IQR Check');
+disp('------------------');
 
 for tag_no = test_prof
     u = 1;
     uu = 1;
     z = 1;
     zz = 1;
-    anticyclones.spicy = [];
-    anticyclones.minty = [];
-    cyclones.spicy = [];
-    cyclones.minty = [];
+    anticyclones.spicy.isopycnal_separation = [];
+    anticyclones.minty.isopycnal_separation = [];
+    cyclones.spicy.N2 = [];
+    cyclones.minty.N2 = [];
     
     for i = 1:length(qc_ts(tag_no).cast)
 
         %%% Checking isopycnal separation
         isopycnal_separation_check = qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i);
         if sum(double(isopycnal_separation_check)) > iqr.min_density_levels
-            
-            %%% Extracting pressure levels
-            pres_levels = qc_ts(tag_no).ds.pres(isopycnal_separation_check,i);
             
             %%% Extracting number of continuous anomalies
             y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres))' 0]==0))-1;
@@ -672,72 +678,118 @@ for tag_no = test_prof
             end
             
             %%% Filling in cells with indices
-            u = 1;
-            while u <= length(B)
+            q = 1;
+            while q <= length(B)
                 for j = 1:length(y)
                     for k = 1:length(B{1,j})
-                        B{1,j}(k,1) = A(u);
-                        u = u+1;
+                        B{1,j}(k,1) = A(q);
+                        q = q+1;
                     end
                 end
             end
-            
+
+            for j = 1:length(B)
                 
-            if length(B{1,j}) < iqr.min_density_levels
-                qc_ts(tag_no).rejected(i) = "Non-Continuous Isopycnals (IQR)";
-                continue
-            elseif max(qc_ts(tag_no).ds.pres(B{1,j},i)) < iqr.min_pres
-                qc_ts(tag_no).rejected(i) = "Too Shallow (IQR)";
-                continue
-            elseif min(pres_levels) > iqr.max_pres
-                qc_ts(tag_no).rejected(i) = "Too Deep (IQR)";
-                continue
-            elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
-                qc_ts(tag_no).rejected(i) = "Too Short (IQR)";
-                continue
-            end
-            
-            if mean(qc_ts(tag_no).ds.spice_anom(isopycnal_separation_check,i)) > 0
-                anticyclones.spicy.isopycnal_separation(1,u) = i;
-                u = u + 1; 
-            else 
-                anticyclones.minty.isopycnal_separation(uu) = i;
-                uu = uu + 1;
+                %%% Extracting pressure levels
+                pres_levels = qc_ts(tag_no).ds.pres(B{1,j},i);
+                
+                %%% Rejecting anomaly for various reasons
+                if length(B{1,j}) < iqr.min_density_levels
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Non-Continuous Isopycnals (IQR)";
+                    continue
+                elseif max(pres_levels) < iqr.min_pres
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Too Shallow (IQR)";
+                    continue
+                elseif min(pres_levels) > iqr.max_pres
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason = "Too Deep (IQR)";
+                    continue
+                elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Too Short (IQR)";
+                    continue
+                else
+                    
+                    if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
+                        anticyclones.spicy.isopycnal_separation(u) = i;
+                        u = u + 1;
+                    else
+                        anticyclones.minty.isopycnal_separation(uu) = i;
+                        uu = uu + 1;
+                    end
+                    
+                    break
+                end
+                
             end
 
         end
         
         %%% Checking N^2
         N2_check = qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i);
-        if sum(double(N2_check)) > iqr.density_levels
-            
-            %%% Checking pressure levels
-            pres_levels = qc_ts(tag_no).ds.pres(N2_check,i);
+        if sum(double(N2_check)) > iqr.min_density_levels
             
             %%% Checking number of continuous anomalies
-            y = diff(find([0 double(N2_check(qc_ts(tag_no).ds.pres(:,i) > 100))' 0]==0))-1;
+            y = diff(find([0 double(N2_check(qc_ts(tag_no).ds.pres(:,i) > iqr.min_pres))' 0]==0))-1;
             y(y==0) = [];
             
-            if max(pres_levels) < iqr.min_pres
-                qc_ts(tag_no).rejected(i) = "Too Shallow (IQR)";
-                continue 
-            elseif min(pres_levels) > iqr.max_pres
-                qc_ts(tag_no).rejected(i) = "Too Deep (IQR)";
-                continue
-            elseif max(pres_levels) - min(pres_levels) < 100
-                qc_ts(tag_no).rejected(i) = "Too Short (IQR)";
-                continue
-            elseif max(y) < 4
-                qc_ts(tag_no).rejected(i) = "Non-Continuous Isopycnals (IQR)";
-                continue
+            %%% Indices at which isopyncal separation check passes
+            A = find(N2_check .* qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres);
+    
+            %%% Creating cells for continuous blocks of indices
+            B = cell(1, length(y));
+            for j = 1:length(y)
+                B{1,j} = NaN(y(j),1);
             end
             
-            if mean(qc_ts(tag_no).ds.spice_anom(N2_check,i)) > 0
-                cyclones.spicy.N2(z) = i;
-                z = z + 1; 
-            else 
-                cyclones.minty.N2(zz) = i;
-                zz = zz + 1;
+            %%% Filling in cells with indices
+            q = 1;
+            while q <= length(B)
+                for j = 1:length(y)
+                    for k = 1:length(B{1,j})
+                        B{1,j}(k,1) = A(q);
+                        q = q+1;
+                    end
+                end
+            end
+            
+            for j = 1:length(B)
+                
+                %%% Extracting pressure levels
+                pres_levels = qc_ts(tag_no).ds.pres(B{1,j},i);
+                
+               %%% Rejecting anomaly for various reasons
+                if length(B{1,j}) < iqr.min_density_levels
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Non-Continuous Isopycnals (IQR)";
+                    continue
+                elseif max(pres_levels) < iqr.min_pres
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Too Shallow (IQR)";
+                    continue
+                elseif min(pres_levels) > iqr.max_pres
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason = "Too Deep (IQR)";
+                    continue
+                elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Too Short (IQR)";
+                    continue
+                else
+                 
+                    if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
+                        cyclones.spicy.N2(z) = i;
+                        z = z + 1;
+                    else
+                        cyclones.minty.N2(zz) = i;
+                        zz = zz + 1;
+                    end
+                    
+                    break
+                end
+                
             end
         end
         
@@ -745,16 +797,32 @@ for tag_no = test_prof
     
     qc_ts(tag_no).cyclones = cyclones;
     qc_ts(tag_no).anticyclones = anticyclones;
+    
+    disp('Anticyclones, Spicy:');
+    disp(qc_ts(tag_no).anticyclones.spicy.isopycnal_separation)
+    
+    disp('Anticyclones, Minty:');
+    disp(qc_ts(tag_no).anticyclones.minty.isopycnal_separation)
+    
+    disp('Cyclones, Spicy:');
+    disp(qc_ts(tag_no).cyclones.spicy.N2)
+    
+    disp('Cyclones, Minty:');
+    disp(qc_ts(tag_no).cyclones.minty.N2)
 end
 
 clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cyclones anticyclones ...
-    y isopycnal_separation_check N2_check i
+    y isopycnal_separation_check N2_check i A B q 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Gaussian Fit Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+disp('---------------------------')
+disp('Starting Gaussian Fit Check')
+disp('---------------------------')
 
 for tag_no = test_prof
     
@@ -768,19 +836,14 @@ for tag_no = test_prof
         if qc_ts(tag_no).gauss_fit{1,i}.rejected == 0
             qc_ts(tag_no).anticyclones.spicy.gaussian(u) = i;
             u = u + 1;
+        else 
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
         end
     end
     
-    %%% Cyclones, spicy
-    u = 1;
-    qc_ts(tag_no).cyclones.spicy.gaussian = [];
-    for i = qc_ts(tag_no).cyclones.spicy.N2
-        qc_ts(tag_no).gauss_fit{i} = fit_gaussian(qc_ts, tag_no, i, 0);
-        if qc_ts(tag_no).gauss_fit{1,i}.rejected == 0
-            qc_ts(tag_no).cyclones.spicy.gaussian(u) = i;
-            u = u + 1;
-        end
-    end
+    disp('Anticyclones, Spicy:');
+    disp(qc_ts(tag_no).anticyclones.spicy.gaussian)
     
     %%% Anticyclones, minty
     u = 1;
@@ -790,9 +853,30 @@ for tag_no = test_prof
         if qc_ts(tag_no).gauss_fit{1,i}.rejected == 0
             qc_ts(tag_no).anticyclones.minty.gaussian(u) = i;
             u = u + 1;
+        else 
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
         end
     end
+    disp('Anticyclones, Minty:');
+    disp(qc_ts(tag_no).anticyclones.minty.gaussian)
     
+    %%% Cyclones, spicy
+    u = 1;
+    qc_ts(tag_no).cyclones.spicy.gaussian = [];
+    for i = qc_ts(tag_no).cyclones.spicy.N2
+        qc_ts(tag_no).gauss_fit{i} = fit_gaussian(qc_ts, tag_no, i, 0);
+        if qc_ts(tag_no).gauss_fit{1,i}.rejected == 0
+            qc_ts(tag_no).cyclones.spicy.gaussian(u) = i;
+            u = u + 1;
+        else 
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
+        end
+    end
+    disp('Cyclones, Spicy:');
+    disp(qc_ts(tag_no).cyclones.spicy.gaussian)
+   
     %%% Cyclones, minty
     u = 1;
     qc_ts(tag_no).cyclones.minty.gaussian = [];
@@ -801,9 +885,15 @@ for tag_no = test_prof
         if qc_ts(tag_no).gauss_fit{1,i}.rejected == 0
             qc_ts(tag_no).cyclones.minty.gaussian(u) = i;
             u = u + 1;
+        else 
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
         end
     end
+    disp('Cyclones, Minty:');
+    disp(qc_ts(tag_no).cyclones.minty.gaussian)
 end
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -870,207 +960,145 @@ end
 %%% Dynamic Height Anomaly Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+disp('------------------')
+disp('Starting DHA Check')
+disp('------------------')
+
 % Script to apply dynmodes routine to recover the vertical velocity and horizontal structure modes
 
 for tag_no = test_prof
     
     %%% Anticyclones, spicy
+    u = 1;
+    qc_ts(tag_no).anticyclones.spicy.dha = [];
     for i = qc_ts(tag_no).anticyclones.spicy.gaussian
         qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+        if qc_ts(tag_no).dha_check{i}.rejected == 0
+            qc_ts(tag_no).anticyclones.spicy.dha(u) = i;
+            u = u + 1;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).dha_check{i}.reason;
+        end
     end
     
-    %%% Cyclones, spicy
-    for i = qc_ts(tag_no).cyclones.spicy.gaussian
-        qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
-    end
+    disp('Anticyclones, Spicy:');
+    disp(qc_ts(tag_no).anticyclones.spicy.dha)
     
     %%% Anticyclones, minty
+    u = 1;
+    qc_ts(tag_no).anticyclones.minty.dha = [];
     for i = qc_ts(tag_no).anticyclones.minty.gaussian
         qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+        if qc_ts(tag_no).dha_check{i}.rejected == 0
+            qc_ts(tag_no).anticyclones.minty.dha(u) = i;
+            u = u + 1;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).dha_check{i}.reason;
+        end
     end
+    
+    disp('Anticyclones, Minty:');
+    disp(qc_ts(tag_no).anticyclones.minty.dha)
+    
+    %%% Cyclones, spicy
+    u = 1;
+    qc_ts(tag_no).cyclones.spicy.dha = [];
+    for i = qc_ts(tag_no).cyclones.spicy.gaussian
+        qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+        if qc_ts(tag_no).dha_check{i}.rejected == 0
+            qc_ts(tag_no).cyclones.minty.dha(u) = i;
+            u = u + 1;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).dha_check{i}.reason;
+        end
+    end
+    
+    disp('Cyclones, Spicy:');
+    disp(qc_ts(tag_no).cyclones.spicy.dha)
     
     %%% Cyclones, minty
-    for i = qc_ts(tag_no).cyclones.minty.gaussian
-        qc_ts(tag_no).dha_check{i} = sha_check(qc_ts, tag_no, i);
-    end
-end
-
-%%
-% Script to apply dynmodes routine to recover the vertical velocity and horizontal structure modes
-opts1 = optimset('display','off','UseParallel',false);
-
-for tag_no = test_prof
-    
-    qc_ts(tag_no).anticyclones.dha = [];
     u = 1;
-    
-    for i = qc_ts(tag_no).anticyclones.gaussian
-        
-        %%% Extract vertical velocity and horizontal structure modes of climatology
-        [meop_profile(i).ref.wmodes, meop_profile(i).ref.pmodes, ~, ~] = dynmodes(qc_ts(tag_no).ps.ref_N2(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i), qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i),1);
-
-        %%% Grab pressure levels of mode decomposition, add zero level (surface)
-        meop_profile(i).ref.mode_pres = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.ref_N2(:,i)),i);
-        meop_profile(i).ref.mode_pres = [0;meop_profile(i).ref.mode_pres];
-
-        % Interpolate 1st baroclinic mode to pressure of SCV cast
-        meop_profile(i).dyn_pres = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
-        meop_profile(i).dyn_height_anom = qc_ts(tag_no).ps.dyn_height_anom(~isnan(qc_ts(tag_no).ps.dyn_height_anom(:,i)),i);
-        meop_profile(i).ref.BC1_data = meop_profile(i).ref.pmodes(:,1);
-        meop_profile(i).ref.BC1_pres = meop_profile(i).ref.mode_pres;
-        meop_profile(i).ref.BC1_data = interp1(meop_profile(i).ref.mode_pres(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).ref.BC1_data(~isnan(meop_profile(i).ref.BC1_data)),meop_profile(i).dyn_pres);
-        meop_profile(i).ref.BC1_pres = meop_profile(i).dyn_pres;
-
-        % Create function that describes residuals between projected BC1 and dyn_height_anom
-        % Exclude data inbetween SCV limits for better fit to first mode
-        dat = [];
-        dat = [meop_profile(i).ref.BC1_data + meop_profile(i).dyn_height_anom];
-        x_o = [];
-        x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
-        x_p = [];
-        x_p = meop_profile(i).ref.BC1_pres(~isnan(dat));
-        x_f = [];
-        x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
-
-        % Get limits
-        pl = qc_ts(tag_no).gauss_fit(i).Plow;
-        ph = qc_ts(tag_no).gauss_fit(i).Phih;
-        
-        % Remove values between upper/lower limits of SCV to avoid bad fit
-        ind = [];
-        ind = find(pl < x_p & x_p < ph);
-        if ind(end) == length(x_p)
-            ind = ind(1:end-1);
+    qc_ts(tag_no).cyclones.minty.dha = [];
+    for i = qc_ts(tag_no).cyclones.minty.gaussian
+        qc_ts(tag_no).dha_check{i} = dha_check(qc_ts, tag_no, i);
+        if qc_ts(tag_no).dha_check{i}.rejected == 0
+            qc_ts(tag_no).anticyclones.minty.dha(u) = i;
+            u = u + 1;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = qc_ts(tag_no).dha_check{i}.reason;
         end
-        x_o(ind) = [];
-        x_f(ind) = [];
-        %x_p(ind) = [];
-
-        % Remove mixed layer depths (Lynne Talley method, first density greater than 0.03 from sfc value
-        ind      = [];
-        mld_dens = qc_ts(tag_no).ps.sigma0(~isnan(qc_ts(tag_no).ps.sigma0(:,i)),i);
-        mld_pres = qc_ts(tag_no).ps.pres(~isnan(qc_ts(tag_no).ps.sigma0(:,i)),i);
-        ind      = find(mld_dens > mld_dens(1)+0.03);
-        mld_pres = mld_pres(ind(1));
-        ind      = find(x_p < mld_pres);
-        if length(ind) > length(x_o)
-            continue
-        end
-        x_o(ind) = [];
-        x_f(ind) = [];
-
-        % f simply evaluates a given alpha (modal amplitude) and returns the
-        % difference between the input DHanom profile and the projected 1st mode
-        % We want to restrict our solutions such that the bottom of the projected
-        % profile is equal to the bottom of the DHanom profile
-        % SO let alpha2 = DHanom(end) - alpha*BT1(end)
-        f = [];
-        f = @(alpha) (alpha*x_o - x_f + (x_f(end) - alpha*x_o(end)));
-        x0  = 0.05; % First guess
-
-        % Solve for best modal amplitude
-        alpha = [];
-        alpha = lsqnonlin(f,x0,[-1],[1],opts1);
-
-        % Redfine x_o and x_f with full profile
-        x_o = meop_profile(i).ref.BC1_data(~isnan(dat));
-        x_p = meop_profile(i).ref.BC1_pres(~isnan(dat)); %%% NOTE: Changed from meop_profile(i).ref.mode_pres - need to check with Danny
-        x_f = meop_profile(i).dyn_height_anom(~isnan(dat));
-
-        % Fix dynamic height anomaly by removing projected 1st mode, add back in barotopic mode
-        meop_profile(i).dyn_height_anom_BC1 = [x_f] - [x_o*alpha + (x_f(end) - alpha*x_o(end))];
-        meop_profile(i).dyn_height_pres_BC1 = meop_profile(i).dyn_pres(~isnan(dat));
-
-        % Save VMD results
-        meop_profile(i).ref.VMD.x_f      = x_f;
-        meop_profile(i).ref.VMD.x_o      = x_o;
-        meop_profile(i).ref.VMD.x_p      = x_p;
-        meop_profile(i).ref.VMD.alpha    = alpha;
-
-        % Get mode decomposition results
-        BC1 = meop_profile(i).ref.VMD.x_o*meop_profile(i).ref.VMD.alpha;
-        BC1 = BC1 - BC1(end); %// Set bottom to zero
-        
-        %%% Checking if positive maximum is achieved within anomaly height
-        local_max = find(islocalmax(meop_profile(i).dyn_height_anom_BC1));
-        
-        ind = local_max(meop_profile(i).dyn_height_pres_BC1(local_max) > qc_ts(tag_no).gauss_fit(i).Plow & meop_profile(i).dyn_height_pres_BC1(local_max) < qc_ts(tag_no).gauss_fit(i).Phih);
-        
-        if isempty(ind)
-            qc_ts(tag_no).rejected(i) = "Failed DHA Test (Max Not Within SCV Limits)";
-        end
-        
-        for j = ind
-            if meop_profile(i).dyn_height_anom_BC1(j) > 0
-                qc_ts(tag_no).anticyclones.dha(u) = i;
-                u = u + 1;
-                break
-            end
-        end
-        
-        if isempty(qc_ts(tag_no).anticyclones.dha)
-            qc_ts(tag_no).rejected(i) = "Failed DHA Test (Negative Max)";
-        end
-            
-%         for j = local_max
-%             if meop_profile(i).dyn_height_anom_BC1(j) > 0 && meop_profile(i).dyn_height_pres_BC1(j) > qc_ts(tag_no).gauss_fit(i).Plow ...
-%                     && meop_profile(i).dyn_height_pres_BC1(j) < qc_ts(tag_no).gauss_fit(i).Phih
-%                 qc_ts(tag_no).anticyclones.dha(u) = i;
-%                 u = u + 1;
-%                 break
-%             elseif meop_profile(i).dyn_height_anom(j) < 0
-%                 qc_ts(tag_no).rejected(i) = "Failed DHA Test (Max Negative)";
-%             elseif meop_profile(i).dyn_height_pres_BC1(j) < qc_ts(tag_no).gauss_fit(i).Plow
-%                 qc_ts(tag_no).rejected(i) = "Failed DHA Test (Max Too Shallow)";
-%             elseif meop_profile(i).dyn_height_pres_BC1(j) < qc_ts(tag_no).gauss_fit(i).Phih
-%                 qc_ts(tag_no).rejected(i) = "Failed DHA Test (Max Too Deep)";
-%             end
-%         end
-           
-        % Plot results
-%         figure();
-%         subplot(121)
-%         plot(-meop_profile(i).ref.pmodes(:,1),meop_profile(i).ref.mode_pres,'r','linewidth',2)
-%         hold on; grid on; set(gca,'YDir','Reverse')
-%         plot(meop_profile(i).ref.pmodes(:,2),meop_profile(i).ref.mode_pres,'b','linewidth',2)
-%         plot(meop_profile(i).ref.pmodes(:,3),meop_profile(i).ref.mode_pres,'g','linewidth',2)
-%         plot(meop_profile(i).ref.pmodes(:,4),meop_profile(i).ref.mode_pres,'y','linewidth',2)
-%         plot(meop_profile(i).ref.pmodes(:,5),meop_profile(i).ref.mode_pres,'color',[0.5 0 0.5],'linewidth',2)
-%         title({'\it\bf\fontsize{8}\fontname{Helvetica}Horizontal Velocity','Modes'})
-%         set(gca,'XTick',[0])
-%         ylabel('Pressure (dbar)')
-%         [l,~] = legend('Mode-1','Mode-2','Mode-3','Mode-4','Mode-5','location','southeast');
-%         l.Box = 'off';
-%         ylim([0 400]);
-%         
-%         subplot(122)
-%         plot(meop_profile(i).dyn_height_anom,meop_profile(i).dyn_pres,'k','linewidth',2)
-%         hold on; grid on; set(gca,'YDir','Reverse')
-%         plot(BC1,meop_profile(i).ref.VMD.x_p,':r','linewidth',2)
-%         plot(meop_profile(i).dyn_height_anom_BC1,meop_profile(i).dyn_height_pres_BC1,':k','linewidth',2)
-%         legend('DH''_{orig}','BC1_{fit}','DH''_{adj}','location','southeast');
-%         xlabel('m^2/s^2')
-%         title({'\it\bf\fontsize{8}\fontname{Helvetica}Dynamic Height','Anomaly'})
-%         set(gca,'YTickLabel',[])
-%         ylim([0 400]);
- 
     end
     
-    %%% Saving BC1 fitting step
-    qc_ts(tag_no).DHA_check = meop_profile;
-   
+    disp('Cyclones, Minty:');
+    disp(qc_ts(tag_no).cyclones.minty.dha)
 end
 
-    clear x0 x_f x_o x_p ref_orig pl ph mld_dens mld_pres l ind icons f dat BC1 argo alpha flaggedprofs_anticyclones...
-        flaggedprofs_cyclones anticyclones pot_cyclones local_max j opts1 u i
-    
+clear u i     
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Removing "SCVs" near time series edge %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+disp('-------------------');
+disp('Removing Edge Cases');
+disp('-------------------');
+
+
+edge_limit = 10;
+
 for tag_no = test_prof
-    qc_ts(tag_no).anticyclones.final = qc_ts(tag_no).anticyclones.dha(qc_ts(tag_no).anticyclones.dha > 20 & qc_ts(tag_no).anticyclones.dha < qc_ts(tag_no).cast(end)-20);
+    
+    %%% Anticyclones, Spicy
+    ind = find(qc_ts(tag_no).anticyclones.spicy.dha < edge_limit | qc_ts(tag_no).anticyclones.spicy.dha > (qc_ts(tag_no).cast(end) - edge_limit));
+    qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.spicy.dha(ind)) = 1;
+    qc_ts(tag_no).reason(qc_ts(tag_no).anticyclones.spicy.dha(ind)) = "Too Close to Edge";
+    final = qc_ts(tag_no).anticyclones.spicy.dha;
+    final(ind) = [];
+    qc_ts(tag_no).anticyclones.spicy.final = final;
+    
+    disp('Anticyclones, Spicy:')
+    disp(qc_ts(tag_no).anticyclones.spicy.final);
+    
+    %%% Anticyclones, Minty
+    ind = find(qc_ts(tag_no).anticyclones.minty.dha < edge_limit | qc_ts(tag_no).anticyclones.minty.dha > (qc_ts(tag_no).cast(end) - edge_limit));
+    qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.minty.dha(ind)) = 1;
+    qc_ts(tag_no).reason(qc_ts(tag_no).anticyclones.minty.dha(ind)) = "Too Close to Edge";
+    final = qc_ts(tag_no).anticyclones.minty.dha;
+    final(ind) = [];
+    qc_ts(tag_no).anticyclones.minty.final = final;
+    
+    disp('Anticyclones, Minty:')
+    disp(qc_ts(tag_no).anticyclones.minty.final);
+    
+    %%% Cyclones, Spicy
+    ind = find(qc_ts(tag_no).cyclones.spicy.dha < 20 | qc_ts(tag_no).cyclones.spicy.dha > (qc_ts(tag_no).cast(end) - edge_limit));
+    qc_ts(tag_no).rejected(qc_ts(tag_no).cyclones.spicy.dha(ind)) = 1;
+    qc_ts(tag_no).reason(qc_ts(tag_no).cyclones.spicy.dha(ind)) = "Too Close to Edge";
+    final = qc_ts(tag_no).cyclones.spicy.dha;
+    final(ind) = [];
+    qc_ts(tag_no).cyclones.spicy.final = final;
+    
+    disp('Cyclones, Spicy:')
+    disp(qc_ts(tag_no).cyclones.spicy.final);
+    
+    %%% Cyclones, Minty
+    ind = find(qc_ts(tag_no).cyclones.minty.dha < 20 | qc_ts(tag_no).cyclones.minty.dha > (qc_ts(tag_no).cast(end) - edge_limit));
+    qc_ts(tag_no).rejected(qc_ts(tag_no).cyclones.minty.dha(ind)) = 1;
+    qc_ts(tag_no).reason(qc_ts(tag_no).cyclones.minty.dha(ind)) = "Too Close to Edge";
+    final = qc_ts(tag_no).cyclones.minty.dha;
+    final(ind) = [];
+    qc_ts(tag_no).cyclones.minty.final = final;
+    
+    disp('Cyclones, Minty:')
+    disp(qc_ts(tag_no).cyclones.minty.final);
+    
+    clear ind final
+    
 end
     
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1207,7 +1235,7 @@ clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 
 isopycnals = 0.05;
 
-tag_no = 116;
+tag_no = 99;
 
 figure('Renderer', 'painters', 'Position', [0 0 1000 950])
 sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
@@ -1216,17 +1244,17 @@ sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 
 ax1 = subplot(4,1,1);
 hold on
 plot(datenum(qc_ts(tag_no).time), qc_ts(tag_no).bathymetry)
-for i = qc_ts(tag_no).pot_anticyclones.N2
+for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
 end
-for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r--')
-end
-for i = qc_ts(tag_no).pot_cyclones.N2
+for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
 end
-for i = qc_ts(tag_no).pot_cyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b--')
+for i = qc_ts(tag_no).cyclones.spicy.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
+end
+for i = qc_ts(tag_no).cyclones.minty.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
 end
 hold off
 xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
@@ -1242,17 +1270,17 @@ pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_t
 set(pp, 'EdgeColor', 'none');
 [C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
 clabel(C,h,'LabelSpacing',500);
-for i = qc_ts(tag_no).pot_anticyclones.N2
+for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
 end
-for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r--')
-end
-for i = qc_ts(tag_no).pot_cyclones.N2
+for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
 end
-for i = qc_ts(tag_no).pot_cyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b--')
+for i = qc_ts(tag_no).cyclones.spicy.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
+end
+for i = qc_ts(tag_no).cyclones.minty.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
 end
 hold off
 cmap = cmocean('thermal');
@@ -1275,17 +1303,17 @@ pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_t
 set(pp, 'EdgeColor', 'none');
 [C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
 clabel(C,h,'LabelSpacing',500);
-for i = qc_ts(tag_no).pot_anticyclones.N2
+for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
 end
-for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r--')
-end
-for i = qc_ts(tag_no).pot_cyclones.N2
+for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
 end
-for i = qc_ts(tag_no).pot_cyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b--')
+for i = qc_ts(tag_no).cyclones.spicy.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
+end
+for i = qc_ts(tag_no).cyclones.minty.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
 end
 hold off
 cmap = cmocean('haline');
@@ -1306,17 +1334,17 @@ hold on
 [~,IB] = unique(datenum(qc_ts(tag_no).time));
 pp = pcolor(unique(datenum(qc_ts(tag_no).time)),density_grid, qc_ts(tag_no).ds.isopycnal_separation(:,IB));
 set(pp, 'EdgeColor', 'none');
-for i = qc_ts(tag_no).pot_anticyclones.N2
+for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
 end
-for i = qc_ts(tag_no).pot_anticyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r--')
-end
-for i = qc_ts(tag_no).pot_cyclones.N2
+for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
     xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
 end
-for i = qc_ts(tag_no).pot_cyclones.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b--')
+for i = qc_ts(tag_no).cyclones.spicy.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
+end
+for i = qc_ts(tag_no).cyclones.minty.N2
+    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
 end
 hold off
 colorbar;
@@ -1352,7 +1380,7 @@ clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
 isopycnals = 0.03;
 
 for tag_no = 116
-    for i = 78
+    for i = 348
         
         fig = figure('Renderer', 'painters', 'Position', [0 0 1000 950]);
         sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
