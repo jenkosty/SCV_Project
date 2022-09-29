@@ -35,6 +35,12 @@ function prof = dha_check(qc_ts, tag_no, i)
         % Remove values between upper/lower limits of SCV to avoid bad fit
         ind = [];
         ind = find(pl < x_p & x_p < ph);
+        if isempty(ind)
+            meop_profile(i).rejected = 1;
+            meop_profile(i).reason = "DHA Preprocessing";
+            prof = meop_profile(i);
+            return;
+        end
         if ind(end) == length(x_p)
             ind = ind(1:end-1);
         end
@@ -49,8 +55,11 @@ function prof = dha_check(qc_ts, tag_no, i)
         ind      = find(mld_dens > mld_dens(1)+0.03);
         mld_pres = mld_pres(ind(1));
         ind      = find(x_p < mld_pres);
-        if length(ind) > length(x_o)
-            return
+        if length(ind) >= length(x_o)
+            meop_profile(i).rejected = 1;
+            meop_profile(i).reason = "DHA Preprocessing";
+            prof = meop_profile(i);
+            return;
         end
         x_o(ind) = [];
         x_f(ind) = [];
@@ -98,8 +107,10 @@ function prof = dha_check(qc_ts, tag_no, i)
         end
         
         for j = ind
+            meop_profile(i).rejected = [];
             if meop_profile(i).dyn_height_anom_BC1(j) > 0
                 meop_profile(i).rejected = 0;
+                meop_profile(i).reason = strings;
                 break
             end
         end
@@ -110,3 +121,31 @@ function prof = dha_check(qc_ts, tag_no, i)
         end
         
         prof = meop_profile(i);
+        
+        %            
+%         % Plot results
+% %         figure();
+% %         subplot(121)
+% %         plot(-meop_profile(i).ref.pmodes(:,1),meop_profile(i).ref.mode_pres,'r','linewidth',2)
+% %         hold on; grid on; set(gca,'YDir','Reverse')
+% %         plot(meop_profile(i).ref.pmodes(:,2),meop_profile(i).ref.mode_pres,'b','linewidth',2)
+% %         plot(meop_profile(i).ref.pmodes(:,3),meop_profile(i).ref.mode_pres,'g','linewidth',2)
+% %         plot(meop_profile(i).ref.pmodes(:,4),meop_profile(i).ref.mode_pres,'y','linewidth',2)
+% %         plot(meop_profile(i).ref.pmodes(:,5),meop_profile(i).ref.mode_pres,'color',[0.5 0 0.5],'linewidth',2)
+% %         title({'\it\bf\fontsize{8}\fontname{Helvetica}Horizontal Velocity','Modes'})
+% %         set(gca,'XTick',[0])
+% %         ylabel('Pressure (dbar)')
+% %         [l,~] = legend('Mode-1','Mode-2','Mode-3','Mode-4','Mode-5','location','southeast');
+% %         l.Box = 'off';
+% %         ylim([0 400]);
+% %         
+% %         subplot(122)
+% %         plot(meop_profile(i).dyn_height_anom,meop_profile(i).dyn_pres,'k','linewidth',2)
+% %         hold on; grid on; set(gca,'YDir','Reverse')
+% %         plot(BC1,meop_profile(i).ref.VMD.x_p,':r','linewidth',2)
+% %         plot(meop_profile(i).dyn_height_anom_BC1,meop_profile(i).dyn_height_pres_BC1,':k','linewidth',2)
+% %         legend('DH''_{orig}','BC1_{fit}','DH''_{adj}','location','southeast');
+% %         xlabel('m^2/s^2')
+% %         title({'\it\bf\fontsize{8}\fontname{Helvetica}Dynamic Height','Anomaly'})
+% %         set(gca,'YTickLabel',[])
+% %         ylim([0 400]);
