@@ -248,7 +248,7 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 
 %test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
 
-test_prof = 99;
+test_prof = 1:50;
 
 for tag_no = test_prof
     
@@ -798,24 +798,23 @@ for tag_no = test_prof
     qc_ts(tag_no).cyclones = cyclones;
     qc_ts(tag_no).anticyclones = anticyclones;
     
-    disp('Anticyclones, Spicy:');
-    disp(qc_ts(tag_no).anticyclones.spicy.isopycnal_separation)
-    
-    disp('Anticyclones, Minty:');
-    disp(qc_ts(tag_no).anticyclones.minty.isopycnal_separation)
-    
-    disp('Cyclones, Spicy:');
-    disp(qc_ts(tag_no).cyclones.spicy.N2)
-    
-    disp('Cyclones, Minty:');
-    disp(qc_ts(tag_no).cyclones.minty.N2)
+%     disp('Anticyclones, Spicy:');
+%     disp(qc_ts(tag_no).anticyclones.spicy.isopycnal_separation)
+%     
+%     disp('Anticyclones, Minty:');
+%     disp(qc_ts(tag_no).anticyclones.minty.isopycnal_separation)
+%     
+%     disp('Cyclones, Spicy:');
+%     disp(qc_ts(tag_no).cyclones.spicy.N2)
+%     
+%     disp('Cyclones, Minty:');
+%     disp(qc_ts(tag_no).cyclones.minty.N2)
 end
 
 clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cyclones anticyclones ...
     y isopycnal_separation_check N2_check i A B q 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Gaussian Fit Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -842,9 +841,6 @@ for tag_no = test_prof
         end
     end
     
-    disp('Anticyclones, Spicy:');
-    disp(qc_ts(tag_no).anticyclones.spicy.gaussian)
-    
     %%% Anticyclones, minty
     u = 1;
     qc_ts(tag_no).anticyclones.minty.gaussian = [];
@@ -858,8 +854,6 @@ for tag_no = test_prof
             qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
         end
     end
-    disp('Anticyclones, Minty:');
-    disp(qc_ts(tag_no).anticyclones.minty.gaussian)
     
     %%% Cyclones, spicy
     u = 1;
@@ -874,9 +868,7 @@ for tag_no = test_prof
             qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
         end
     end
-    disp('Cyclones, Spicy:');
-    disp(qc_ts(tag_no).cyclones.spicy.gaussian)
-   
+
     %%% Cyclones, minty
     u = 1;
     qc_ts(tag_no).cyclones.minty.gaussian = [];
@@ -890,12 +882,21 @@ for tag_no = test_prof
             qc_ts(tag_no).reason(i) = qc_ts(tag_no).gauss_fit{1,i}.reason;
         end
     end
-    disp('Cyclones, Minty:');
-    disp(qc_ts(tag_no).cyclones.minty.gaussian)
+    
+%     disp('Anticyclones, Spicy:');
+%     disp(qc_ts(tag_no).anticyclones.spicy.gaussian)
+%     disp('Anticyclones, Minty:');
+%     disp(qc_ts(tag_no).anticyclones.minty.gaussian)
+%     disp('Cyclones, Spicy:');
+%     disp(qc_ts(tag_no).cyclones.spicy.gaussian)
+%     disp('Cyclones, Minty:');
+%     disp(qc_ts(tag_no).cyclones.minty.gaussian)
+    
 end
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Calculating Dynamic Height Anomaly %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -955,7 +956,7 @@ for tag_no = test_prof
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Dynamic Height Anomaly Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -967,6 +968,8 @@ disp('------------------')
 % Script to apply dynmodes routine to recover the vertical velocity and horizontal structure modes
 
 for tag_no = test_prof
+    
+    qc_ts(tag_no).dha_check{length(qc_ts(tag_no).cast)} = struct();
     
     %%% Anticyclones, spicy
     u = 1;
@@ -982,9 +985,6 @@ for tag_no = test_prof
         end
     end
     
-    disp('Anticyclones, Spicy:');
-    disp(qc_ts(tag_no).anticyclones.spicy.dha)
-    
     %%% Anticyclones, minty
     u = 1;
     qc_ts(tag_no).anticyclones.minty.dha = [];
@@ -999,9 +999,6 @@ for tag_no = test_prof
         end
     end
     
-    disp('Anticyclones, Minty:');
-    disp(qc_ts(tag_no).anticyclones.minty.dha)
-    
     %%% Cyclones, spicy
     u = 1;
     qc_ts(tag_no).cyclones.spicy.dha = [];
@@ -1015,10 +1012,7 @@ for tag_no = test_prof
             qc_ts(tag_no).reason(i) = qc_ts(tag_no).dha_check{i}.reason;
         end
     end
-    
-    disp('Cyclones, Spicy:');
-    disp(qc_ts(tag_no).cyclones.spicy.dha)
-    
+   
     %%% Cyclones, minty
     u = 1;
     qc_ts(tag_no).cyclones.minty.dha = [];
@@ -1032,9 +1026,15 @@ for tag_no = test_prof
             qc_ts(tag_no).reason(i) = qc_ts(tag_no).dha_check{i}.reason;
         end
     end
-    
-    disp('Cyclones, Minty:');
-    disp(qc_ts(tag_no).cyclones.minty.dha)
+%     
+%     disp('Anticyclones, Spicy:');
+%     disp(qc_ts(tag_no).anticyclones.spicy.dha)
+%     disp('Anticyclones, Minty:');
+%     disp(qc_ts(tag_no).anticyclones.minty.dha)
+%     disp('Cyclones, Spicy:');
+%     disp(qc_ts(tag_no).cyclones.spicy.dha)
+%     disp('Cyclones, Minty:');
+%     disp(qc_ts(tag_no).cyclones.minty.dha)
 end
 
 clear u i     
@@ -1048,7 +1048,6 @@ disp('-------------------');
 disp('Removing Edge Cases');
 disp('-------------------');
 
-
 edge_limit = 10;
 
 for tag_no = test_prof
@@ -1060,10 +1059,7 @@ for tag_no = test_prof
     final = qc_ts(tag_no).anticyclones.spicy.dha;
     final(ind) = [];
     qc_ts(tag_no).anticyclones.spicy.final = final;
-    
-    disp('Anticyclones, Spicy:')
-    disp(qc_ts(tag_no).anticyclones.spicy.final);
-    
+        
     %%% Anticyclones, Minty
     ind = find(qc_ts(tag_no).anticyclones.minty.dha < edge_limit | qc_ts(tag_no).anticyclones.minty.dha > (qc_ts(tag_no).cast(end) - edge_limit));
     qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.minty.dha(ind)) = 1;
@@ -1071,10 +1067,7 @@ for tag_no = test_prof
     final = qc_ts(tag_no).anticyclones.minty.dha;
     final(ind) = [];
     qc_ts(tag_no).anticyclones.minty.final = final;
-    
-    disp('Anticyclones, Minty:')
-    disp(qc_ts(tag_no).anticyclones.minty.final);
-    
+   
     %%% Cyclones, Spicy
     ind = find(qc_ts(tag_no).cyclones.spicy.dha < 20 | qc_ts(tag_no).cyclones.spicy.dha > (qc_ts(tag_no).cast(end) - edge_limit));
     qc_ts(tag_no).rejected(qc_ts(tag_no).cyclones.spicy.dha(ind)) = 1;
@@ -1083,9 +1076,6 @@ for tag_no = test_prof
     final(ind) = [];
     qc_ts(tag_no).cyclones.spicy.final = final;
     
-    disp('Cyclones, Spicy:')
-    disp(qc_ts(tag_no).cyclones.spicy.final);
-    
     %%% Cyclones, Minty
     ind = find(qc_ts(tag_no).cyclones.minty.dha < 20 | qc_ts(tag_no).cyclones.minty.dha > (qc_ts(tag_no).cast(end) - edge_limit));
     qc_ts(tag_no).rejected(qc_ts(tag_no).cyclones.minty.dha(ind)) = 1;
@@ -1093,9 +1083,15 @@ for tag_no = test_prof
     final = qc_ts(tag_no).cyclones.minty.dha;
     final(ind) = [];
     qc_ts(tag_no).cyclones.minty.final = final;
-    
-    disp('Cyclones, Minty:')
-    disp(qc_ts(tag_no).cyclones.minty.final);
+
+%     disp('Anticyclones, Spicy:')
+%     disp(qc_ts(tag_no).anticyclones.spicy.final);
+%     disp('Anticyclones, Minty:')
+%     disp(qc_ts(tag_no).anticyclones.minty.final);
+%     disp('Cyclones, Spicy:')
+%     disp(qc_ts(tag_no).cyclones.spicy.final);
+%     disp('Cyclones, Minty:')
+%     disp(qc_ts(tag_no).cyclones.minty.final);
     
     clear ind final
     
@@ -1103,15 +1099,71 @@ end
     
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Reviewing Rejected Profiles %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Summarizing Detected SCVs %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+u = 1;
+scvs = [];
 for tag_no = test_prof
-    figure()
-    histogram(categorical(qc_ts(tag_no).rejected))
-    title('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
+    for i = qc_ts(tag_no).anticyclones.spicy.final
+        scvs(u).tag = qc_ts(tag_no).tag;
+        scvs(u).cast = qc_ts(tag_no).cast(i);
+        scvs(u).time = qc_ts(tag_no).time(i,:);
+        scvs(u).lat = qc_ts(tag_no).lat(i);
+        scvs(u).lon = qc_ts(tag_no).lon(i);
+        scvs(u).type = "Anticyclonic";
+        scvs(u).spice = "Spicy";
+        u = u + 1;
+    end
+    
+    for i = qc_ts(tag_no).anticyclones.minty.final
+        scvs(u).tag = qc_ts(tag_no).tag;
+        scvs(u).cast = qc_ts(tag_no).cast(i);
+        scvs(u).time = qc_ts(tag_no).time(i,:);
+        scvs(u).lat = qc_ts(tag_no).lat(i);
+        scvs(u).lon = qc_ts(tag_no).lon(i);
+        scvs(u).type = "Anticyclonic";
+        scvs(u).spice = "Minty";
+        u = u + 1;
+    end
+    
+    for i = qc_ts(tag_no).cyclones.spicy.final
+        scvs(u).tag = qc_ts(tag_no).tag;
+        scvs(u).cast = qc_ts(tag_no).cast(i);
+        scvs(u).time = qc_ts(tag_no).time(i,:);
+        scvs(u).lat = qc_ts(tag_no).lat(i);
+        scvs(u).lon = qc_ts(tag_no).lon(i);
+        scvs(u).type = "Cyclonic";
+        scvs(u).spice = "Spicy";
+        u = u + 1;
+    end
+    
+    for i = qc_ts(tag_no).cyclones.minty.final
+        scvs(u).tag = qc_ts(tag_no).tag;
+        scvs(u).cast = qc_ts(tag_no).cast(i);
+        scvs(u).time = qc_ts(tag_no).time(i,:);
+        scvs(u).lat = qc_ts(tag_no).lat(i);
+        scvs(u).lon = qc_ts(tag_no).lon(i);
+        scvs(u).type = "Cclonic";
+        scvs(u).spice = "Minty";
+        u = u + 1;
+    end
 end
+
+for i = 1:length(scvs)
+    if scvs(i).lon > -70 && scvs(i).lon < 0
+        scvs(i).region = "Weddell";
+    elseif scvs(i).lon <= -70 && scvs(i).lon > -150
+        scvs(i).region = "WAP";
+    elseif scvs(i).lon <= -150 || scvs(i).lon > 170
+        scvs(i).region = "Ross";
+    else
+        scvs(i).region = "East";
+    end
+end
+    
+clear u i
+    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -1513,4 +1565,3 @@ for tag_no = 116
         
     end
 end
-
