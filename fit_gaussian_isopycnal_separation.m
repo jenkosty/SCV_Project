@@ -1,17 +1,17 @@
-function results = fit_gaussian(qc_ts,tag_no,i,choice)
-
-        if choice == 1
-            qc_ts(tag_no).ds.spice_anom(:,i) = -qc_ts(tag_no).ds.spice_anom(:,i);
-        end
+function results = fit_gaussian_isopycnal_separation(qc_ts,tag_no,i)
     
+        %// Goodness-of-fit thresholds
+        R2_thresh    = 0.5;
+        NRMSE_thresh = 0.5;
+
         % Grab amplitude and depth of max spice anomaly
-        spike.A  = max(qc_ts(tag_no).ds.spice_anom(:,i));
-        spike.P = qc_ts(tag_no).ds.pres(find(qc_ts(tag_no).ds.spice_anom(:,i) == spike.A),i);
+        spike.A  = max(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i));
+        spike.P = qc_ts(tag_no).ds.pres(find(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) == spike.A),i);
         
         % Get range of allowable parameters
         prng = [-0.2:0.05:0.2];  % allow pressure peak to vary between +- 20% of height
-        arng  = [0.8:0.05:1.2];  % allow amplitude range of +- 20% of spice anomaly peak
-        hrng  = [50:10:500];     % allow height to vary  between 50 and 850m
+        arng  = [0.8:0.05:1.2];  % allow amplitude range of +- 20% of isopycnal separation anomaly peak
+        hrng  = [100:5:500];     % allow height to vary  between 50 and 850m
         
         % Set up matrix for least-squared error calculation
         lse = nan(length(prng),length(arng),length(hrng));
@@ -30,7 +30,7 @@ function results = fit_gaussian(qc_ts,tag_no,i,choice)
                     % Center Gaussian model around spike.P + p*h
                     zo = [];
                     zo = double(qc_ts(tag_no).ds.pres(:,i) - [spike.P + p*(4)*sqrt(h^2/2)]);
-                    sa = double(qc_ts(tag_no).ds.spice_anom(:,i));
+                    sa = double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i));
                     
                     % Reduce to where data exists
                     dat      = sa + zo;
@@ -46,7 +46,7 @@ function results = fit_gaussian(qc_ts,tag_no,i,choice)
                     
                     % Grab results
                     zp     = [zo + spike.P + p*(4)*sqrt(h^2/2)];
-                    dataX  = qc_ts(tag_no).ds.spice_anom(pl <= qc_ts(tag_no).ds.pres(:,i) & qc_ts(tag_no).ds.pres(:,i) <= ph, i);
+                    dataX  = qc_ts(tag_no).ds.isopycnal_separation_anom(pl <= qc_ts(tag_no).ds.pres(:,i) & qc_ts(tag_no).ds.pres(:,i) <= ph, i);
                     dataY  = qc_ts(tag_no).ds.pres(pl <= qc_ts(tag_no).ds.pres(:,i) & qc_ts(tag_no).ds.pres(:,i) <= ph, i);
                     dataY  = round(dataY, 6);
                     modelX = gauss(pl <= zp & zp <= ph);
@@ -65,11 +65,17 @@ function results = fit_gaussian(qc_ts,tag_no,i,choice)
                     % Calculate R^2
                     R2(pcnt,acnt,hcnt) = corr2(dataX,modelX).^2;
                     
+                    %// Calculate NRMSE (must be < 0.5);
+                    RMSE                   = sqrt(sum((dataX - modelX).^2)/length(dataX));
+                    NRMSE(pcnt,acnt,hcnt) = RMSE/(max(dataX) - min(dataX));
+                    
                     % Save least-squared error results (ignore if bad R2 value (i.e. < 0.5))
-                    if R2(pcnt,acnt,hcnt) < 0.5
+                    if R2(pcnt,acnt,hcnt) < R2_thresh
+                        lse(pcnt,acnt,hcnt) = NaN;
+                    elseif NRMSE(pcnt,acnt,hcnt) > NRMSE_thresh
                         lse(pcnt,acnt,hcnt) = NaN;
                     else
-                        lse(pcnt,acnt,hcnt) = sum([dataX-modelX].^2);
+                        lse(pcnt,acnt,hcnt) = sum([dataX - modelX].^2);
                     end
                 end
             end
@@ -79,7 +85,7 @@ function results = fit_gaussian(qc_ts,tag_no,i,choice)
         [minlse,idxlse] = min(lse(:));
         if isnan(minlse)
             results.rejected = 1;
-            results.reason = "Bad R^2 Value (Gaussian)";
+            results.reason = "Failed Gaussian Fit (Error) ";
             return
         end
         [a,b,c] = ind2sub(size(lse),idxlse);
@@ -103,30 +109,21 @@ function results = fit_gaussian(qc_ts,tag_no,i,choice)
         results.Y = zp;
         
         % Determining whether fit passes
-        if minlse < 0.05 && results.A > 0.08
+        if results.A > 50
             results.rejected = 0;
-        elseif minlse >=0.05 && results.A <= 0.08
-            results.rejected = 1;
-            results.reason = "Failed Gaussian Fit (Error + Amplitude)";
-        elseif minlse >= 0.05
-            results.rejected = 1;
-            results.reason = "Failed Gaussian Fit (Error)";
-        elseif results.A <= 0.08
+        else
             results.rejected = 1;
             results.reason = "Failed Gaussian Fit (Amplitude)";
         end
         
-        %// Finally, fix orientation of model if minty
-        if choice == 1
-            results.X = -results.X;
-            qc_ts(tag_no).ds.spice_anom(:,i) = -qc_ts(tag_no).ds.spice_anom(:,i);
-        end
+        figure()
+        plot(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i),qc_ts(tag_no).ds.pres(:,i),'k','linewidth',2)
+        hold on; grid on; set(gca,'YDir','Reverse')
+        plot(results.X,results.Y,'Color','r','LineWidth',3,'LineStyle','-.')
+        xlabel('m')
+        ylabel('dbar');
         
-%                 figure()
-%         plot(qc_ts(tag_no).ds.spice_anom(:,i),qc_ts(tag_no).ds.pres(:,i),'k','linewidth',2)
-%         hold on; grid on; set(gca,'YDir','Reverse')
-%         plot(results.X,results.Y,'Color','r','LineWidth',3,'LineStyle','-.')
-%         xlabel('m')
-%         ylabel('dbar');
+ 
+        
         
    
