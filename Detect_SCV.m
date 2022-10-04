@@ -27,7 +27,7 @@ ref_settings.top_depth = 100; %%% depth at which there must still be at least x 
 iqr.min_pres = 100;
 iqr.max_pres = 500;
 iqr.min_thickness = 100;
-iqr.min_density_levels = 4;
+iqr.min_density_levels = 3;
 iqr.no_profiles = 15;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -111,7 +111,7 @@ clear maxpres flagit i
 
 clear interp_sealdata_qc interp_salt interp_temp
 
-depth_grid = 1:10:800;
+depth_grid = 0:1:800;
 depth_grid = depth_grid';
 
 for i = 1:length(SO_sealdata_qc)
@@ -246,7 +246,9 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Variables (Pressure Space) %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
+%test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201, 1:10];
+
+test_prof = 21:30;
 
 for tag_no = test_prof
     
@@ -386,7 +388,7 @@ clear sigma0_orig sigma0_sort idx sigma0_sort_1 i gamma_n_orig gamma_n_sort idx 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%% Creating density grid
-density_grid = (26.6:0.01:28)';
+density_grid = (26.6:0.01:28.3)';
 
 for tag_no = test_prof
     
@@ -541,7 +543,7 @@ for tag_no = test_prof
 
 end
 
-clear tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds tmp_salt_ds_level ...
+clear tmp_pres_ds tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds tmp_pres_ds_level tmp_salt_ds_level ...
     tmp_temp_ds_level tmp_spice_ds_level tmp_N2_ds_level tmp_isopycnal_separation_ds_level i j
 
 
@@ -715,6 +717,9 @@ for tag_no = test_prof
                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Anomaly Too Small (IQR)";
                 else
                     
+                    qc_ts(tag_no).rejected(i) = 0;
+                    qc_ts(tag_no).reason(i) = strings;
+                    
                     if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
                         anticyclones.spicy.isopycnal_separation(u) = i;
                         u = u + 1;
@@ -782,6 +787,9 @@ for tag_no = test_prof
                     continue
                 else
                  
+                    qc_ts(tag_no).rejected(i) = 0;
+                    qc_ts(tag_no).reason(i) = strings;
+                    
                     if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
                         cyclones.spicy.N2(z) = i;
                         z = z + 1;
@@ -796,6 +804,10 @@ for tag_no = test_prof
             end
         end
         
+        if isnan(qc_ts(tag_no).rejected(i))
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = "No IQR Anomaly";
+        end
     end
     
     qc_ts(tag_no).cyclones = cyclones;
@@ -818,7 +830,7 @@ clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cycl
     y isopycnal_separation_check N2_check i A B q 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Gaussian Fit Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1572,5 +1584,5 @@ for j = 1:length(scvs)
         
 end
 
-        clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
+        clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig h IB isopycnals p1 p2 p3 p4 p5 pp
         
