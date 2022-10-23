@@ -1,11 +1,85 @@
 clear; close all; clc
 
-%%% Loading LLC data
-LLC = loadLLCdata(5, 1:46);
-
 %%% Loading seal data
 load("qc_ts.mat")
 test_prof = 164;
+
+%%
+%%% Loading LLC data
+
+LLC_1.mat = matfile('/Volumes/Elements/LLC_Snapshots/SO_snapshots_NSF_LLC4320_k1-86_face1_01-Dec-2011.mat');
+LLC_2.mat = matfile('/Volumes/Elements/LLC_Snapshots/SO_snapshots_NSF_LLC4320_k1-86_face2_01-Dec-2011.mat');
+LLC_4.mat = matfile('/Volumes/Elements/LLC_Snapshots/SO_snapshots_NSF_LLC4320_k1-86_face4_01-Dec-2011.mat');
+LLC_5.mat = matfile('/Volumes/Elements/LLC_Snapshots/SO_snapshots_NSF_LLC4320_k1-86_face5_01-Dec-2011.mat');
+
+LLC_1.edge_lats = [double(LLC_1.mat.yc(1,:)), double(LLC_1.mat.yc(:,end))', flip(double(LLC_1.mat.yc(end,:))), flip(double(LLC_1.mat.yc(:,1)))'];
+LLC_1.edge_lons = [double(LLC_1.mat.xc(1,:)), double(LLC_1.mat.xc(:,end))', flip(double(LLC_1.mat.xc(end,:))), flip(double(LLC_1.mat.xc(:,1)))'];
+LLC_1.polygon = geopolyshape(LLC_1.edge_lats, LLC_1.edge_lons);
+
+LLC_2.edge_lats = [double(LLC_2.mat.yc(1,:)), double(LLC_2.mat.yc(:,end))', flip(double(LLC_2.mat.yc(end,:))), flip(double(LLC_2.mat.yc(:,1)))'];
+LLC_2.edge_lons = [double(LLC_2.mat.xc(1,:)), double(LLC_2.mat.xc(:,end))', flip(double(LLC_2.mat.xc(end,:))), flip(double(LLC_2.mat.xc(:,1)))'];
+LLC_2.polygon = geopolyshape(LLC_2.edge_lats, LLC_2.edge_lons);
+
+LLC_4.edge_lats = [double(LLC_4.mat.yc(1,:)), double(LLC_4.mat.yc(:,end))', flip(double(LLC_4.mat.yc(end,:))), flip(double(LLC_4.mat.yc(:,1)))'];
+LLC_4.edge_lons = [double(LLC_4.mat.xc(1,:)), double(LLC_4.mat.xc(:,end))', flip(double(LLC_4.mat.xc(end,:))), flip(double(LLC_4.mat.xc(:,1)))'];
+LLC_4.polygon = geopolyshape(LLC_4.edge_lats, LLC_4.edge_lons);
+
+LLC_5.edge_lats = [double(LLC_5.mat.yc(1,:)), double(LLC_5.mat.yc(:,end))', flip(double(LLC_5.mat.yc(end,:))), flip(double(LLC_5.mat.yc(:,1)))'];
+LLC_5.edge_lons = [double(LLC_5.mat.xc(1,:)), double(LLC_5.mat.xc(:,end))', flip(double(LLC_5.mat.xc(end,:))), flip(double(LLC_5.mat.xc(:,1)))'];
+LLC_5.polygon = geopolyshape(LLC_5.edge_lats, LLC_5.edge_lons);
+
+%%
+for tag_no = test_prof
+    for i = 1:length(qc_ts(tag_no).cast)
+        if isinterior(LLC_1.polygon, geopointshape(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i)))
+            seal.sector(i) = 1;
+        elseif isinterior(LLC_2.polygon, geopointshape(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i)))
+            seal.sector(i) = 2;
+        elseif isinterior(LLC_5.polygon, geopointshape(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i)))
+            seal.sector(i) = 5;
+        elseif isinterior(LLC_4.polygon, geopointshape(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i)))
+            seal.sector(i) = 4;
+        end
+    end
+end
+
+%%
+for tag_no = test_prof
+    for i = 1:length(qc_ts(tag_no).cast)
+
+        %%% Grabbing LLC data for profile sector
+        if seal.sector(i) == 1
+            LLC = LLC_1;
+        elseif seal.sector(i) == 2
+            LLC = LLC_2;
+        elseif seal.sector(i) == 4
+            LLC = LLC_4;
+        elseif seal.sector(i) == 5
+            LLC = LLC_5;
+        end
+
+        %%% Extracting indices of LLC data near profile lat/lon
+        dists = distance(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i), double(LLC.mat.yc), double(LLC.mat.xc));
+        min_dists = mink(dists(:), 4);
+    
+        ind.row = NaN(1,4);
+        ind.col = NaN(1,4);
+        for j = 1:4
+            [ind.row(j), ind.col(j)] = find(dists == min_dists(j));
+        end
+
+        %%% Extracting LLC data
+        for j = 1:4
+            salt(:,j) = squeeze(LLC.mat.s(ind.row(j), ind.col(j), :));
+            temp(:,j) = squeeze(LLC.mat.t(ind.row(j), ind.col(j), :));
+            vort(:,j) = squeeze(LLC.mat.Ro(ind.row(j), ind.col(j), :));
+        end
+        temp(salt == 0) = NaN;
+        vort(salt == 0) = NaN;
+        salt(salt == 0) = NaN;
+
+    end
+end
 
 %%
 %%% Generating synthetic seal track
@@ -182,12 +256,14 @@ figure()
 axesm('stereo','Origin',[-90 0],'MapLatLimit',[-90 -57],'MLineLocation', 30, 'PLineLocation', 10, 'FontSize',10);
 axis off; framem on; gridm on; mlabel on; plabel on;
 colormap(cmocean('balance'));
-caxis([-0.3 0.3]);
+clim([-0.3 0.3]);
 colorbar;
 hold on
-pcolorm(LLC.lat(1:1:end,1:1:end), LLC.lon(1:1:end,1:1:end), LLC.vort(1:1:end,1:1:end,depth_ind));
+% pcolorm(LLC.lat(1:1:end,1:1:end), LLC.lon(1:1:end,1:1:end), LLC.vort(1:1:end,1:1:end,depth_ind));
 geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+plotm(LLC_4.edge_lats, LLC_4.edge_lons)
 plotm(qc_ts(tag_no).lat, qc_ts(tag_no).lon, 'g-','Marker', '.','MarkerSize', 10, 'LineWidth', 2)
-plotm(qc_ts(tag_no).lat(154), qc_ts(tag_no).lon(154),'c', 'Marker', '*','MarkerSize', 10, 'LineWidth', 2)
+% plotm(qc_ts(tag_no).lat(154), qc_ts(tag_no).lon(154),'c', 'Marker', '*','MarkerSize', 10, 'LineWidth', 2)
 hold off
-title('LLC Vorticity Data: ' + string(-LLC.depth(depth_ind)) + ' m')
+%title('LLC Vorticity Data: ' + string(-LLC.depth(depth_ind)) + ' m')
+
