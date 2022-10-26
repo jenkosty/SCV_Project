@@ -42,14 +42,14 @@ axesm('stereo','Origin',[-90 0],'MapLatLimit',[-90 -57],'MLineLocation', 30, 'PL
 axis off; framem on; gridm on; mlabel on; plabel on;
 colormap(cmocean('balance')); colorbar; clim([-0.3 0.3]);
 hold on
-pcolorm(LLC_1.lats(:,:), LLC_1.lons(:,:), LLC_1.mat.Ro(:,:,32));
+pcolorm(LLC_5.lats(:,:), LLC_5.lons(:,:), LLC_5.mat.Ro(:,:,32));
 geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
 hold off
 
 %%
 
 %%% Selecting lat/lon to samply eddy
-ind = 2;
+ind = 4;
 points = inputm(25);
 
 %%% Saving data
@@ -75,6 +75,8 @@ clear region eddysamples centerindex rotationtype
 %%% Interpolating LLC data to create "time series" of selected lat/lons %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+clear LLCsealdata
+
 for tag_no = 1:length(fakesealdata)
     
     clear LLCseal
@@ -82,6 +84,10 @@ for tag_no = 1:length(fakesealdata)
     %%% Grabbing data on MEOP seal time series
     LLCseal.tag = fakesealdata(tag_no).tag;
     LLCseal.cast = fakesealdata(tag_no).cast;
+    LLCseal.region = fakesealdata(tag_no).region;
+    LLCseal.eddysamples = fakesealdata(tag_no).eddysamples;
+    LLCseal.centerindex = fakesealdata(tag_no).centerindex;
+    LLCseal.rotationtype = fakesealdata(tag_no).rotationtype;
     LLCseal.lat = fakesealdata(tag_no).lat;
     LLCseal.lon = fakesealdata(tag_no).lon;
 
@@ -212,6 +218,9 @@ for tag_no = 1:length(LLCsealdata)
         tmp_pres_space.N2(:,i) = interp1(mid_pres(:,i), N2(:,i), tmp_pres_space.pres(:,i));
     end
 
+    %%% Calculating Dynamic Height Anomaly 
+    tmp_pres_space.dyn_height_anom = gsw_geo_strf_dyn_height(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, 0);
+
     %%% Calculating Spice
     tmp_pres_space.spice = gsw_spiciness0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
     
@@ -294,4 +303,300 @@ for tag_no = 1:length(LLCsealdata)
     
     clear isopycnal_separation i j 
 end
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Finding Indices to Build Reference Profiles %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+ref_settings.inner_window = 2;
+ref_settings.outer_window = 12;
+
+for tag_no = 1:length(LLCsealdata)
+
+    LLCsealdata(tag_no).ref_ind = [];
+    mean_ind = cell(2,1);
+    
+    %%% Finding indices to use for background profile calculation
+    i = LLCsealdata(tag_no).centerindex;
+
+    mean_ind(1,:) = {(i-ref_settings.outer_window):(i-ref_settings.inner_window)};
+    mean_ind(2,:) = {(i+ref_settings.inner_window):(i+ref_settings.outer_window)};
+
+    %%% Saving indices
+    LLCsealdata(tag_no).ref_ind = mean_ind;
+    
+end
+
+clear mean_ind i
+
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Building Reference Profiles %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = 1:length(LLCsealdata)
+    
+    %%% Creating reference profiles for each of the time series profiles
+    LLCsealdata(tag_no).ds.ref_salt = NaN(size(LLCsealdata(tag_no).ds.salt,1),1);
+    LLCsealdata(tag_no).ds.ref_temp = NaN(size(LLCsealdata(tag_no).ds.temp,1),1);
+    LLCsealdata(tag_no).ds.ref_N2 = NaN(size(LLCsealdata(tag_no).ds.N2,1),1);
+    LLCsealdata(tag_no).ds.ref_spice = NaN(size(LLCsealdata(tag_no).ds.spice,1),1);
+    LLCsealdata(tag_no).ds.ref_isopycnal_separation = NaN(size(LLCsealdata(tag_no).ds.isopycnal_separation,1),1);
+
+    for i = LLCsealdata(tag_no).centerindex
+    
+        %%% Extracting the profiles to build the reference profile
+        tmp_salt_ds = LLCsealdata(tag_no).ds.salt(:,[LLCsealdata(tag_no).ref_ind{1,1} LLCsealdata(tag_no).ref_ind{2,1}]);
+        tmp_temp_ds = LLCsealdata(tag_no).ds.temp(:,[LLCsealdata(tag_no).ref_ind{1,1} LLCsealdata(tag_no).ref_ind{2,1}]);
+        tmp_N2_ds = LLCsealdata(tag_no).ds.N2(:,[LLCsealdata(tag_no).ref_ind{1,1} LLCsealdata(tag_no).ref_ind{2,1}]);
+        tmp_spice_ds = LLCsealdata(tag_no).ds.spice(:,[LLCsealdata(tag_no).ref_ind{1,1} LLCsealdata(tag_no).ref_ind{2,1}]);
+        tmp_isopycnal_separation_ds = LLCsealdata(tag_no).ds.isopycnal_separation(:,[LLCsealdata(tag_no).ref_ind{1,1} LLCsealdata(tag_no).ref_ind{2,1}]);
+
+        %%% Calculating a climatological value for each density level if at least
+        %%% 75% of the potential reference profiles have data at said
+        %%% level
+        for j = 1:size(tmp_salt_ds, 1)
+            tmp_salt_ds_level = tmp_salt_ds(j,~isnan(tmp_salt_ds(j,:)));
+            tmp_temp_ds_level = tmp_temp_ds(j,~isnan(tmp_temp_ds(j,:)));
+            tmp_spice_ds_level = tmp_spice_ds(j,~isnan(tmp_spice_ds(j,:)));
+            if length(tmp_salt_ds_level) > 0.75*size(tmp_salt_ds,2)
+                LLCsealdata(tag_no).ds.ref_salt(j,1) = median(tmp_salt_ds_level);
+                LLCsealdata(tag_no).ds.ref_temp(j,1) = median(tmp_temp_ds_level);
+                LLCsealdata(tag_no).ds.ref_spice(j,1) = median(tmp_spice_ds_level); 
+            end
+            
+            tmp_N2_ds_level = tmp_N2_ds(j,~isnan(tmp_N2_ds(j,:)));
+            if length(tmp_N2_ds_level) > 0.75*size(tmp_N2_ds,2)
+                LLCsealdata(tag_no).ds.ref_N2(j,1) = median(tmp_N2_ds_level);  
+            end
+            
+            tmp_isopycnal_separation_ds_level = tmp_isopycnal_separation_ds(j,~isnan(tmp_isopycnal_separation_ds(j,:)));
+            if length(tmp_isopycnal_separation_ds_level) > 0.75*size(tmp_isopycnal_separation_ds,2)
+                LLCsealdata(tag_no).ds.ref_isopycnal_separation(j,1) = median(tmp_isopycnal_separation_ds_level);  
+            end
+        end
+        
+        
+    end
+
+end
+
+clear tmp_pres_ds tmp_salt_ds tmp_temp_ds tmp_N2_ds tmp_spice_ds tmp_isopycnal_separation_ds tmp_pres_ds_level tmp_salt_ds_level ...
+    tmp_temp_ds_level tmp_spice_ds_level tmp_N2_ds_level tmp_isopycnal_separation_ds_level i j
+
+for tag_no = 1:length(LLCsealdata)
+
+    %%% Creating reference profiles for each of the time series profiles
+    LLCsealdata(tag_no).ps.ref_dyn_height_anom = NaN(size(LLCsealdata(tag_no).ps.dyn_height_anom,1),1);
+
+    for i = LLCsealdata(tag_no).centerindex
+    
+        %%% Extracting the profiles to build the reference profile
+        tmp_dyn_height_anom_ps = LLCsealdata(tag_no).ps.dyn_height_anom(:,[LLCsealdata(tag_no).ref_ind{1,1} LLCsealdata(tag_no).ref_ind{2,1}]);
+
+        %%% Calculating a climatological value for each density level if at least
+        %%% 75% of the potential reference profiles have data at said
+        %%% level
+        for j = 1:size(tmp_dyn_height_anom_ps, 1)
+            tmp_dyn_height_anom_ps_level = tmp_dyn_height_anom_ps(j,~isnan(tmp_dyn_height_anom_ps(j,:)));
+            if length(tmp_dyn_height_anom_ps_level) > 0.75*size(tmp_dyn_height_anom_ps,2)
+                LLCsealdata(tag_no).ps.ref_dyn_height_anom(j,1) = median(tmp_dyn_height_anom_ps_level);  
+            end
+        end
+        
+    end
+
+end
+
+clear tmp_dyn_height_anom_ps tmp_dyn_height_anom_ps_level
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Anomalies %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = 1:length(LLCsealdata)
+
+    %%% Creating anomaly profiles for each of the time series profiles
+    LLCsealdata(tag_no).ds.salt_anom = NaN(size(LLCsealdata(tag_no).ds.salt,1),1);
+    LLCsealdata(tag_no).ds.temp_anom = NaN(size(LLCsealdata(tag_no).ds.temp,1),1);
+    LLCsealdata(tag_no).ds.N2_anom = NaN(size(LLCsealdata(tag_no).ds.N2,1),1);
+    LLCsealdata(tag_no).ds.spice_anom = NaN(size(LLCsealdata(tag_no).ds.spice,1),1);
+    LLCsealdata(tag_no).ds.isopycnal_separation_anom = NaN(size(LLCsealdata(tag_no).ds.isopycnal_separation,1),1);
+
+    for i = LLCsealdata(tag_no).centerindex
+
+        %%% Calculating Anomalies
+        LLCsealdata(tag_no).ds.salt_anom(:,1) = LLCsealdata(tag_no).ds.salt(:,i) - LLCsealdata(tag_no).ds.ref_salt(:,1);
+        LLCsealdata(tag_no).ds.temp_anom(:,1) = LLCsealdata(tag_no).ds.temp(:,i) - LLCsealdata(tag_no).ds.ref_temp(:,1);
+        LLCsealdata(tag_no).ds.N2_anom(:,1) = LLCsealdata(tag_no).ds.N2(:,i) - LLCsealdata(tag_no).ds.ref_N2(:,1);
+        LLCsealdata(tag_no).ds.spice_anom(:,1) = LLCsealdata(tag_no).ds.spice(:,i) - LLCsealdata(tag_no).ds.ref_spice(:,1);
+        LLCsealdata(tag_no).ds.isopycnal_separation_anom(:,1) = LLCsealdata(tag_no).ds.isopycnal_separation(:,i) - LLCsealdata(tag_no).ds.ref_isopycnal_separation(:,1);
+    end
+end
+
+for tag_no = 1:length(LLCsealdata)
+    LLCsealdata(tag_no).ps.dyn_height_anom_anom = NaN(size(LLCsealdata(tag_no).ps.dyn_height_anom,1),1);
+
+    for i = LLCsealdata(tag_no).centerindex
+        LLCsealdata(tag_no).ps.dyn_height_anom_anom(:,1) = LLCsealdata(tag_no).ps.dyn_height_anom(:,i) - LLCsealdata(tag_no).ps.ref_dyn_height_anom(:,1);
+    end
+end
+
+clear i
+
+%%
+isopycnals = 0.01;
+
+for tag_no = 1:length(LLCsealdata)
+        i = LLCsealdata(tag_no).centerindex;
+        
+        fig = figure('Position', [0 0 1000 850]);
+        sgtitle('Manually Created "Seal" Track', 'FontSize', 18, 'FontWeight', 'bold')
+        
+        %%% Temperature Subplot
+        ax1 = subplot(4,4,1:3);
+        hold on
+        pp = pcolor(LLCsealdata(tag_no).cast, LLCsealdata(tag_no).ps.pres(:,1), LLCsealdata(tag_no).temp);
+        set(pp, 'EdgeColor', 'none');
+        [C,h] = contour(ax1, LLCsealdata(tag_no).cast, depth_grid, LLCsealdata(tag_no).ps.sigma0, round(min(min(LLCsealdata(tag_no).ps.sigma0)):isopycnals:max(max(LLCsealdata(tag_no).ps.sigma0)), 2), 'k');
+        clabel(C,h,'LabelSpacing',500);
+        xline(LLCsealdata(tag_no).cast(i), 'r', 'LineWidth', 1.5)
+        hold off
+        cmap = cmocean('thermal'); colormap(ax1, cmap); colorbar;
+        clim([min(min(LLCsealdata(tag_no).temp)) max(max(LLCsealdata(tag_no).temp))])
+        set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
+        ylabel('Pressure (dbar)', 'FontSize', 12);
+        ylim([0 800])
+        title('Temperature', 'FontSize', 12);
+        
+        %%% Salinity Subplot
+        ax2 = subplot(4,4,5:7);
+        hold on
+        pp = pcolor(LLCsealdata(tag_no).cast, LLCsealdata(tag_no).ps.pres(:,1), LLCsealdata(tag_no).salt);
+        set(pp, 'EdgeColor', 'none');
+        [C,h] = contour(ax2, LLCsealdata(tag_no).cast, depth_grid, LLCsealdata(tag_no).ps.sigma0, round(min(min(LLCsealdata(tag_no).ps.sigma0)):isopycnals:max(max(LLCsealdata(tag_no).ps.sigma0)), 2), 'k');
+        clabel(C,h,'LabelSpacing',500);
+        xline(LLCsealdata(tag_no).cast(i), 'r', 'LineWidth', 1.5)
+        hold off
+        cmap = cmocean('haline'); colormap(ax2, cmap); colorbar;
+        clim([min(min(LLCsealdata(tag_no).salt)) max(max(LLCsealdata(tag_no).salt))])
+        set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
+        ylabel('Pressure (dbar)', 'FontSize', 12);
+        ylim([0 800])
+        title('Salinity', 'FontSize', 12);
+        
+        %%% Map Subplot
+        ax3 = subplot(4,4,4);
+        axesm('lambertstd','MapParallels',[-75 -15],'MapLatLimit',[min(LLCsealdata(tag_no).lat)-0.1 max(LLCsealdata(tag_no).lat)+0.1],'MapLonLimit',[min(LLCsealdata(tag_no).lon)-0.2 max(LLCsealdata(tag_no).lon)+0.2], 'MLineLocation', 2, 'PLineLocation', 1, 'FontSize',13);
+        axis off; framem on; gridm on; mlabel on; plabel on;
+        hold on
+        colormap(ax3, cmocean('balance')); colorbar; clim([-0.3 0.3]);
+        if LLCsealdata(tag_no).region == "WAP"
+            pcolorm(LLC_5.lats(:,:), LLC_5.lons(:,:), LLC_5.mat.Ro(:,:,32));
+        elseif LLCsealdata(tag_no).region == "East"
+            pcolorm(LLC_1.lats(:,:), LLC_1.lons(:,:), LLC_1.mat.Ro(:,:,32));
+        end
+        geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+        plotm(LLCsealdata(tag_no).lat, LLCsealdata(tag_no).lon, 'linestyle', '-', 'Color','g', 'Marker','o', 'MarkerFaceColor','w', 'MarkerSize', 1);
+
+        %%% Map Subplot
+        subplot(4,4,8)
+        axesm('lambertstd','MapParallels',[-75 -15],'MapLatLimit',[min(LLCsealdata(tag_no).lat)-10 max(LLCsealdata(tag_no).lat)+10],'MapLonLimit',[min(LLCsealdata(tag_no).lon)-20 max(LLCsealdata(tag_no).lon)+20], 'MLineLocation', 20, 'PLineLocation', 5, 'FontSize',13);
+        axis off; framem on; gridm on; mlabel on; plabel on;
+        hold on
+        geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+        plotm(LLCsealdata(tag_no).lat, LLCsealdata(tag_no).lon, 'linestyle', '-', 'Color','g', 'Marker','o', 'MarkerFaceColor','w', 'MarkerSize', 1);
+
+        %%% Spice Profile
+        subplot(4,4,9);
+        hold on
+        plot(LLCsealdata(tag_no).ds.spice(:,i), LLCsealdata(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        plot(LLCsealdata(tag_no).ds.ref_spice(:,1), LLCsealdata(tag_no).ds.pres(:,1), 'k', 'DisplayName', 'Reference', 'LineWidth', 1.5)
+        set(gca, 'YDir', 'reverse');
+        xlabel('Spice');
+        hold off
+        legend('Location', 'best')
+        ylim([0 800]);
+        
+        %%% Isopycnal Separation Profile
+        subplot(4,4,10);
+        hold on
+        plot(LLCsealdata(tag_no).ds.isopycnal_separation(:,i), LLCsealdata(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        plot(LLCsealdata(tag_no).ds.ref_isopycnal_separation(:,1), LLCsealdata(tag_no).ds.pres(:,1), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
+        set(gca, 'YDir', 'reverse');
+        xlabel('Isopycnal Separation');
+        hold off
+        legend('Location', 'best')
+        ylim([0 800]);
+        
+        %%% N2 Profile
+        subplot(4,4,11);
+        hold on
+        plot(LLCsealdata(tag_no).ds.N2(:,i), LLCsealdata(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        plot(LLCsealdata(tag_no).ds.ref_N2(:,1), LLCsealdata(tag_no).ds.pres(:,1), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
+        set(gca, 'YDir', 'reverse');
+        xlabel('N^2');
+        hold off
+        legend('Location', 'best')
+        ylim([0 800]);
+
+        %%% DHA Profile
+        subplot(4,4,12)
+        hold on
+        plot(LLCsealdata(tag_no).ps.dyn_height_anom(:,i), LLCsealdata(tag_no).ps.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        plot(LLCsealdata(tag_no).ps.ref_dyn_height_anom(:,1), LLCsealdata(tag_no).ps.pres(:,1), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
+        set(gca, 'YDir', 'reverse');
+        xlabel('Dynamic Height Anomaly');
+        hold off
+        legend('Location', 'best')
+        ylim([0 800]);
+        
+        %%% Spice Anomaly Profile
+        subplot(4,4,13);
+        hold on
+        plot(LLCsealdata(tag_no).ds.spice_anom(:,1), LLCsealdata(tag_no).ds.pres(:,1), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        xline(0, '--k', 'LineWidth', 1);
+        set(gca, 'YDir', 'reverse');
+        xlabel('Spice Anomaly');
+        hold off
+        ylim([0 800]);
+        
+        %%% Isopycnal Separation Anomaly Profile
+        subplot(4,4,14);
+        hold on
+        plot(LLCsealdata(tag_no).ds.isopycnal_separation_anom(:,1), LLCsealdata(tag_no).ds.pres(:,1), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        xline(0, '--k', 'LineWidth', 1);
+        set(gca, 'YDir', 'reverse');
+        xlabel('Isopycnal Separation Anomaly');
+        hold off
+        ylim([0 800]);
+        
+        %%% N2 Anomaly Profile
+        subplot(4,4,15);
+        hold on
+        plot(LLCsealdata(tag_no).ds.N2_anom(:,1), LLCsealdata(tag_no).ds.pres(:,1), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+        xline(0, '--k', 'LineWidth', 1);
+        set(gca, 'YDir', 'reverse');
+        xlabel('N^2 Anomaly');
+        hold off
+        ylim([0 800]);
+             
+        %%% Dynamic Height Anomaly Profile
+        subplot(4,4,16);
+        hold on
+        plot(LLCsealdata(tag_no).ps.dyn_height_anom_anom(:,1), LLCsealdata(tag_no).ps.pres(:,1),'b', 'DisplayName', 'Adjusted Profile','LineWidth',1.5)
+        xline(0, '--k', 'LineWidth', 1);
+        set(gca, 'YDir', 'reverse');
+        xlabel('Dynamic Height Anomaly Anomaly');
+        hold off
+        ylim([0 800]);
+
+        saveas(fig, '/Users/jenkosty/Documents/Research/SCV_Project/Figures/25Oct2022/' + string(LLCsealdata(tag_no).tag), 'png')
+        
+end
+
+        clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig h IB isopycnals p1 p2 p3 p4 p5 pp
 
