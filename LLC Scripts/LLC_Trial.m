@@ -36,7 +36,6 @@ LLC_5.polygon = geopolyshape(LLC_5.edge_lats, LLC_5.edge_lons);
 LLC_5.lats = double(LLC_5.mat.yc);
 LLC_5.lons = double(LLC_5.mat.xc);
 
-%%
 %%% Calculating the Okubo Weiss Parameter
 ind = [27 32];
 LLC_1.OW = Okubo_Weiss(LLC_1.mat.dxc(:,:), LLC_1.mat.dyc(:,:), LLC_1.mat.u(:,:,ind), LLC_1.mat.v(:,:,ind));
@@ -45,6 +44,8 @@ LLC_4.OW = Okubo_Weiss(LLC_4.mat.dxc(:,:), LLC_4.mat.dyc(:,:), LLC_4.mat.u(:,:,i
 LLC_5.OW = Okubo_Weiss(LLC_5.mat.dxc(:,:), LLC_5.mat.dyc(:,:), LLC_5.mat.u(:,:,ind), LLC_5.mat.v(:,:,ind));
 
 %%
+test_prof = 1:length(qc_ts);
+
 for tag_no = test_prof
     
     clear LLCseal
@@ -94,9 +95,8 @@ for tag_no = test_prof
         %%% Finding LLC points close to MEOP profile
         LLC_lats = LLC.lats;
         LLC_lons = LLC.lons;
-        nan_ind = LLC_lats > LLCseal.lat(i) + 0.025 | LLC_lats < LLCseal.lat(i) - 0.025 | LLC_lons > LLCseal.lon(i) + 0.025 | LLC_lons < LLCseal.lon(i) - 0.025;
+        nan_ind = LLC_lats > LLCseal.lat(i) + 0.025 | LLC_lats < LLCseal.lat(i) - 0.025 | LLC_lons > LLCseal.lon(i) + 0.04 | LLC_lons < LLCseal.lon(i) - 0.04;
         LLC_lats(nan_ind) = NaN;
-        LLC_lons(nan_ind) = NaN;
         close_ind = find(~isnan(LLC_lats));
         [rows, cols] = ind2sub(size(LLC_lats), close_ind);
 
@@ -147,25 +147,22 @@ for tag_no = test_prof
     LLCseal.vort = LLCseal_vort;
     LLCseal.OW = LLCseal_OW;
 
+    %%% Using Okubo Weiss to flag profiles as eddies
+    for i = 1:length(LLCseal.cast)
+        if abs(LLCseal.OW(1,i)) > 0.4e-8 && abs(LLCseal.OW(2,i)) > 0.4e-8
+            LLCseal.scv(i) = 1;
+        else
+            LLCseal.scv(i) = 0;
+        end
+    end
+
     %%% Saving interpolated LLC data to a structure
     LLCsealdata(tag_no) = LLCseal;
 
     clear sector i LLCseal LLCseal_salt LLCseal_temp LLCseal_vort LLCseal_OW LLC_lats LLC_lons
 end
 
-%%
-%%% Using Okubo Weiss to flag profiles as eddies
-for tag_no = test_prof
-    for i = 1:length(LLCsealdata(tag_no).cast)
-        if abs(LLCsealdata(tag_no).OW(1,i)) > 0.4e-8 && abs(LLCsealdata(tag_no).OW(2,i)) > 0.4e-8
-            LLCsealdata(tag_no).scv(i) = 1;
-        else
-            LLCsealdata(tag_no).scv(i) = 0;
-        end
-    end
-end
-
-
+save("LLCsealdata", "LLCsealdata")
 
 %%
 
@@ -175,21 +172,26 @@ for tag_no = test_prof
 %     LLC_data(tag_no).bathymetry = interp2(RTOPO.lon, RTOPO.lat', RTOPO.bedrock_topography, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
 
     %%% Creating pressure space structure
-    tmp_pres_space.pres = depth_grid .* ones(size(LLC_data(tag_no).salt));
+    tmp_pres_space.pres = depth_grid .* ones(size(LLCsealdata(tag_no).salt));
     
     %%% Assigning temperature and salinity data to new pressure space
     %%% structure
-    tmp_pres_space.salt = LLC_data(tag_no).salt;
-    tmp_pres_space.temp = LLC_data(tag_no).temp;
-    tmp_pres_space.vort = LLC_data(tag_no).vort;
+    tmp_pres_space.salt = LLCsealdata(tag_no).salt;
+    tmp_pres_space.temp = LLCsealdata(tag_no).temp;
+    tmp_pres_space.vort = LLCsealdata(tag_no).vort;
     
     %%% Calculating bottom pressure
-    for i = 1:length(qc_ts(tag_no).cast)
-        tmp_pres_space.prof_bot_pres(i) = max(tmp_pres_space.pres(~isnan(tmp_pres_space.salt(:,i)),i));     
+    for i = 1:length(LLCsealdata(tag_no).cast)
+        prof_pres = tmp_pres_space.pres(~isnan(tmp_pres_space.salt(:,i)),i);
+        if isempty(prof_pres)
+            tmp_pres_space.bot_prof_pres = NaN;
+        else
+            tmp_pres_space.prof_bot_pres(i) = max(prof_pres); 
+        end
     end
 
     %%% Calculating absolute salinity and conservative temperature
-    tmp_pres_space.salt_absolute = gsw_SA_from_SP(tmp_pres_space.salt, depth_grid, LLC_data(tag_no).lon, LLC_data(tag_no).lat);
+    tmp_pres_space.salt_absolute = gsw_SA_from_SP(tmp_pres_space.salt, depth_grid, LLCsealdata(tag_no).lon, LLCsealdata(tag_no).lat);
     tmp_pres_space.temp_conservative = gsw_CT_from_t(tmp_pres_space.salt_absolute, tmp_pres_space.temp, tmp_pres_space.pres);
 
     %%% Calculating density
@@ -202,7 +204,7 @@ for tag_no = test_prof
     %[tmp_pres_space.gamma_n,~,~] = eos80_legacy_gamma_n(tmp_pres_space.salt, tmp_pres_space.temp, tmp_pres_space.pres, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
 
     %%% Calculating N^2
-    [N2, mid_pres] = gsw_Nsquared(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, LLC_data(tag_no).lat .* ones(size(tmp_pres_space.salt)));
+    [N2, mid_pres] = gsw_Nsquared(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, LLCsealdata(tag_no).lat .* ones(size(tmp_pres_space.salt)));
     for i = 1:length(qc_ts(tag_no).cast)
         tmp_pres_space.N2(:,i) = interp1(mid_pres(:,i), N2(:,i), tmp_pres_space.pres(:,i));
     end
@@ -211,98 +213,145 @@ for tag_no = test_prof
     tmp_pres_space.spice = gsw_spiciness0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
     
     %%% Assigning variables to structure
-    LLC_data(tag_no).ps = tmp_pres_space;
+    LLCsealdata(tag_no).ps = tmp_pres_space;
 
     clear ts_isopycnal_sep ts_pres u pres_final pres j isopycnal_sep isopycnal_sep_ds isopycnal_sep_y_axis...
-            i a b density depths density_final k isopycnal_sep_final pres_ds ts_density tmp_pres_space 
+            i a b density depths density_final k isopycnal_sep_final pres_ds ts_density tmp_pres_space prof_pres
 
 end
 
 clear N2 mid_pres
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Interpolating to Density Grid %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Creating density grid
+density_grid = (26.6:0.001:28.3)';
+
+for tag_no = test_prof
+    
+    %%% Creating matrices for density-interpolated data
+    interp_salt = NaN(length(density_grid), length(LLCsealdata(tag_no).cast));
+    interp_temp = NaN(length(density_grid), length(LLCsealdata(tag_no).cast));
+    interp_N2 = NaN(length(density_grid), length(LLCsealdata(tag_no).cast));
+    interp_spice = NaN(length(density_grid), length(LLCsealdata(tag_no).cast));
+    interp_pres = NaN(length(density_grid), length(LLCsealdata(tag_no).cast));
+    
+    for i = 1:length(LLCsealdata(tag_no).cast)
+        
+        %%% Removing NaNs
+        tmp_sigma0 = LLCsealdata(tag_no).ps.sigma0(~isnan(LLCsealdata(tag_no).ps.sigma0(:,i)),i);
+        tmp_salt = LLCsealdata(tag_no).ps.salt(~isnan(LLCsealdata(tag_no).ps.salt(:,i)),i);
+        tmp_temp = LLCsealdata(tag_no).ps.temp(~isnan(LLCsealdata(tag_no).ps.temp(:,i)),i);
+        tmp_N2 = LLCsealdata(tag_no).ps.N2(~isnan(LLCsealdata(tag_no).ps.N2(:,i)),i);
+        tmp_sigma0_N2 = LLCsealdata(tag_no).ps.sigma0(~isnan(LLCsealdata(tag_no).ps.sigma0(:,i)) & ~isnan(LLCsealdata(tag_no).ps.N2(:,i)),i);
+        tmp_spice = LLCsealdata(tag_no).ps.spice(~isnan(LLCsealdata(tag_no).ps.spice(:,i)),i);
+        tmp_pres = depth_grid(~isnan(LLCsealdata(tag_no).ps.sigma0(:,i)));
+        
+        if isempty(tmp_salt)
+            interp_salt(:,i) = NaN(length(density_grid), 1);
+            interp_temp(:,i) = NaN(length(density_grid), 1);
+            interp_N2(:,i) = NaN(length(density_grid), 1);
+            interp_spice(:,i) = NaN(length(density_grid), 1);
+            interp_pres(:,i) = NaN(length(density_grid), 1);
+        else
+            %%% Interpolating data
+            interp_salt(:,i) = interp1(tmp_sigma0, tmp_salt, density_grid);
+            interp_temp(:,i) = interp1(tmp_sigma0, tmp_temp, density_grid);
+            interp_N2(:,i) = interp1(tmp_sigma0_N2, tmp_N2, density_grid);
+            interp_spice(:,i) = interp1(tmp_sigma0, tmp_spice, density_grid);
+            interp_pres(:,i) = interp1(tmp_sigma0, tmp_pres, density_grid);
+        end
+    end
+    
+    %%% Saving density-interpolated data
+    tmp_sigma0_space.salt = interp_salt;
+    tmp_sigma0_space.temp = interp_temp;
+    tmp_sigma0_space.N2 = interp_N2;
+    tmp_sigma0_space.spice = interp_spice;
+    tmp_sigma0_space.pres = interp_pres;
+    
+    %%% Saving structure
+    LLCsealdata(tag_no).ds = tmp_sigma0_space;
+    
+    clear tmp_density tmp_salt tmp_temp tmp_N2 tmp_density_N2 tmp_spice tmp_pres ...
+        interp_salt interp_temp interp_N2 interp_spice interp_pres tmp_density_space ...
+        tmp_sigma0 tmp_sigma0_N2 tmp_sigma0_space i
+    
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Calculating Isopycnal Separation %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = 1:length(LLCsealdata)
+    
+    isopycnal_separation = NaN(length(density_grid), length(LLCsealdata(tag_no).cast));
+    
+    for i = 1:length(LLCsealdata(tag_no).cast)
+        for j = 1:length(density_grid)
+            isopycnal_separation(j,i) = LLCsealdata(tag_no).ds.pres(min(j+1, length(density_grid)), i) - LLCsealdata(tag_no).ds.pres(max(j-1, 1), i);
+        end
+    end
+    
+    LLCsealdata(tag_no).ds.isopycnal_separation = isopycnal_separation;
+    
+    clear isopycnal_separation i j 
+end
+
 %%
-tag_no = test_prof;
-i = 154;
+%%%%%%%%%%%%%%%%%%
+%%% Map figure %%%
+%%%%%%%%%%%%%%%%%%
 
-isopycnals = 0.02;
+for tag_no = test_prof
 
-figure('Renderer', 'painters', 'Position', [0 0 1000 850])
+    lat_min = min(LLCsealdata(tag_no).lat) - 0.1;
+    lat_max = max(LLCsealdata(tag_no).lat) + 0.1;
+    lon_min = min(LLCsealdata(tag_no).lon) - 0.5;
+    lon_max = max(LLCsealdata(tag_no).lon) + 0.5;
 
-ax1 = subplot(311);
-hold on
-[~,IB] = unique(datenum(LLC_data(tag_no).time));
-pp = pcolor(unique(datenum(LLC_data(tag_no).time)),LLC_data(tag_no).ps.pres(:,1), LLC_data(tag_no).salt(:,IB));
-set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax1, unique(datenum(LLC_data(tag_no).time)), depth_grid, LLC_data(tag_no).ps.sigma0(:,IB), round(min(min(LLC_data(tag_no).ps.sigma0)):isopycnals:max(max(LLC_data(tag_no).ps.sigma0)), 2), 'k');
-clabel(C,h,'LabelSpacing',500);
-xline(datenum(LLC_data(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
-hold off
-cmap = cmocean('haline'); colormap(ax1, cmap); colorbar; caxis([min(min(LLC_data(tag_no).salt)) max(max(LLC_data(tag_no).salt))])
-set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
-xticks(linspace(datenum(LLC_data(tag_no).time(1,:)), datenum(LLC_data(tag_no).time(end,:)), (datenum(LLC_data(tag_no).time(end,:)) - datenum(LLC_data(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylim([0 500])
-ylabel('Pressure (dbar)', 'FontSize', 12);
-title('Salinity', 'FontSize', 12);
+    if lon_max - lon_min > 360
+        pos_min = min(LLCsealdata(tag_no).lon(LLCsealdata(tag_no).lon > 0));
+        lon_min = -180 - (180-pos_min) - 0.5;
+        lon_max = max(LLCsealdata(tag_no).lon(LLCsealdata(tag_no).lon < 0)) + 0.5;
+    end
 
-ax2 = subplot(312);
-hold on
-[~,IB] = unique(datenum(LLC_data(tag_no).time));
-pp = pcolor(unique(datenum(LLC_data(tag_no).time)),LLC_data(tag_no).ps.pres(:,1), LLC_data(tag_no).temp(:,IB));
-set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax2, unique(datenum(LLC_data(tag_no).time)), depth_grid, LLC_data(tag_no).ps.sigma0(:,IB), round(min(min(LLC_data(tag_no).ps.sigma0)):isopycnals:max(max(LLC_data(tag_no).ps.sigma0)), 2), 'k');
-clabel(C,h,'LabelSpacing',500);
-xline(datenum(LLC_data(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
-hold off
-cmap = cmocean('thermal'); colormap(ax2, cmap); colorbar; caxis([min(min(LLC_data(tag_no).temp)) max(max(LLC_data(tag_no).temp))])
-set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
-xticks(linspace(datenum(LLC_data(tag_no).time(1,:)), datenum(LLC_data(tag_no).time(end,:)), (datenum(LLC_data(tag_no).time(end,:)) - datenum(LLC_data(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylim([0 500])
-ylabel('Pressure (dbar)', 'FontSize', 12);
-title('Temperature', 'FontSize', 12);
+    %%% Figure settings
+    load coastlines
+    figure('Position', [500 100 1000 850])
+    axesm('lambertstd', 'MapParallels',[-75 -15],'MapLatLimit',[lat_min lat_max], ...
+        'MapLonLimit', [lon_min lon_max], 'MLineLocation', 30, 'PLineLocation', 10, 'FontSize',10);
+    axis off; framem on; gridm on; mlabel on; plabel on;
+    colormap(cmocean('balance')); colorbar; clim([-1e-8 1e-8]);
 
-ax3 = subplot(313);
-hold on
-[~,IB] = unique(datenum(LLC_data(tag_no).time));
-pp = pcolor(unique(datenum(LLC_data(tag_no).time)),LLC_data(tag_no).ps.pres(:,1), LLC_data(tag_no).vort(:,IB));
-set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax3, unique(datenum(LLC_data(tag_no).time)), depth_grid, LLC_data(tag_no).ps.sigma0(:,IB), round(min(min(LLC_data(tag_no).ps.sigma0)):isopycnals:max(max(LLC_data(tag_no).ps.sigma0)), 2), 'k');
-clabel(C,h,'LabelSpacing',500);
-xline(datenum(LLC_data(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
-hold off
-cmap = cmocean('balance'); colormap(ax3, cmap); colorbar; caxis([-max(abs(LLC_data(tag_no).vort(:))) max(abs(LLC_data(tag_no).vort(:)))])
-set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
-xticks(linspace(datenum(LLC_data(tag_no).time(1,:)), datenum(LLC_data(tag_no).time(end,:)), (datenum(LLC_data(tag_no).time(end,:)) - datenum(LLC_data(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylim([0 500])
-ylabel('Pressure (dbar)', 'FontSize', 12);
-title('Rossby Number', 'FontSize', 12);
+    %%% Plotting data
+    hold on
 
+    %%% Grabbing sector of LLC time series
+    for j = unique(LLCsealdata(tag_no).sector)
+        if j == 1
+            LLC = LLC_1;
+            pcolorm(LLC.lats(:,:), LLC.lons(:,:), LLC.OW(:,:, 2));
+        elseif j == 2
+            LLC = LLC_2;
+            pcolorm(LLC.lats(:,:), LLC.lons(:,:), LLC.OW(:,:, 2));
+        elseif j == 4
+            LLC = LLC_4;
+            pcolorm(LLC.lats(:,:), LLC.lons(:,:), LLC.OW(:,:, 2));
+        elseif j == 5
+            LLC = LLC_5;
+            pcolorm(LLC.lats(:,:), LLC.lons(:,:), LLC.OW(:,:, 2));
+        end
+    end
+    geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+    plotm(LLCsealdata(tag_no).lat, LLCsealdata(tag_no).lon, '-s', 'Color', [0.5 0.5 0.5],...
+        'MarkerSize', 4, 'MarkerFaceColor', [0.5 0.5 0.5], 'LineWidth', 2)
+    scatterm(LLCsealdata(tag_no).lat(LLCsealdata(tag_no).scv == 1), LLCsealdata(tag_no).lon(LLCsealdata(tag_no).scv == 1), 6, 'gs', 'MarkerFaceColor', 'g')
 
+end
 
-
-%%
-
-%%%
-sea_ice = shaperead('/Users/jenkosty/Documents/Research/Sea_Ice_Extent/median_extent_S_12_1981-2010_polyline_v3.0/median_extent_S_12_1981-2010_polyline_v3.0');
-proj = shapeinfo('/Users/jenkosty/Documents/Research/Sea_Ice_Extent/median_extent_S_12_1981-2010_polyline_v3.0/median_extent_S_12_1981-2010_polyline_v3.0.shp').CoordinateReferenceSystem;
-[sea_ice_lat, sea_ice_lon] = projinv(proj, [sea_ice.X], [sea_ice.Y]);
-
-tag_no = 92;
-%%% Plotting vorticity data
-load coastlines
-figure('Position', [500 100 1000 850])
-axesm('stereo','Origin',[-90 0],'MapLatLimit',[-90 -57],'MLineLocation', 30, 'PLineLocation', 10, 'FontSize',10);
-axis off; framem on; gridm on; mlabel on; plabel on;
-colormap(cmocean('balance')); colorbar; clim([-1e-8 1e-8]);
-hold on
-pcolorm(LLC_1.lats(:,:), LLC_1.lons(:,:), LLC_1.OW(:,:, 1));
-plotm(sea_ice_lat, sea_ice_lon, '-g')
-geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
-%plotm(qc_ts(tag_no).lat, qc_ts(tag_no).lon, 'g-','Marker', '.','MarkerSize', 10, 'LineWidth', 2)
-hold off
-%title('LLC Vorticity Data: ' + string(-LLC.depth(depth_ind)) + ' m')
-
-
-
+clear lat_min lat_max lon_min lon_max pos_min coastlat coastlon
