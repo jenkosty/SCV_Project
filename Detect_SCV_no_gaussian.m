@@ -246,8 +246,8 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Variables (Pressure Space) %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
-test_prof = 1:length(qc_ts);
+test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
+%test_prof = 1:length(qc_ts);
 
 disp('------------------------------------')
 disp('Calculating Pressure Space Variables')
@@ -300,6 +300,9 @@ for tag_no = test_prof
 
     %%% Calculating Dynamic Height Anomaly 
     tmp_pres_space.dyn_height_anom = gsw_geo_strf_dyn_height(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, 0);
+
+    %%% Calculating Isopycnal Separation
+    %tmp_pres_space.dz_dp(:,i) = diff(tmp_pres_space.pres(~isnan(tmp_pres_space.sigma0(:,i)),i), tmp_pres_space.sigma0(~isnan(tmp_pres_space.sigma0(:,i)),i));
     
     %%% Assigning variables to structure
     qc_ts(tag_no).ps = tmp_pres_space;
@@ -398,7 +401,7 @@ disp('Interpolating to Density Space')
 disp('------------------------------')
 
 %%% Creating density grid
-density_grid = (26.6:0.01:28.3)';
+density_grid = (26.6:0.001:28.3)';
 
 for tag_no = test_prof
     
@@ -464,8 +467,8 @@ for tag_no = test_prof
     isopycnal_separation = NaN(length(density_grid), length(qc_ts(tag_no).cast));
     
     for i = 1:length(qc_ts(tag_no).cast)
-        for j = 1:length(density_grid)
-            isopycnal_separation(j,i) = qc_ts(tag_no).ds.pres(min(j+1, length(density_grid)), i) - qc_ts(tag_no).ds.pres(max(j-1, 1), i);
+        for j = 2:length(density_grid)-1
+            isopycnal_separation(j,i) = qc_ts(tag_no).ds.pres(j+1, i) - qc_ts(tag_no).ds.pres(j-1, i);
         end
     end
     
@@ -719,12 +722,8 @@ disp('------------------');
 for tag_no = test_prof
     u = 1;
     uu = 1;
-    z = 1;
-    zz = 1;
     anticyclones.spicy.isopycnal_separation = [];
     anticyclones.minty.isopycnal_separation = [];
-    cyclones.spicy.isopycnal_separation = [];
-    cyclones.minty.isopycnal_separation = [];
     
     for i = 1:length(qc_ts(tag_no).cast)
 
@@ -778,14 +777,26 @@ for tag_no = test_prof
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Short (IQR)";
                     continue
-                elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) < 100
+                elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) < 40
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Anomaly Too Small (IQR)";
+                elseif min(pres_levels) > 0.50 * max(qc_ts(tag_no).ds.pres(~isnan(qc_ts(tag_no).ds.pres(:,i)),i))
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
+                    continue
+                elseif kstest(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) == 0
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Isopycnal Separation Shape";
+                    continue
+%                 elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) == qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j}(end),i)
+%                     qc_ts(tag_no).rejected(i) = 1;
+%                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Shape";
+%                     continue
                 else
-                    
                     qc_ts(tag_no).rejected(i) = 0;
                     qc_ts(tag_no).reason(i) = strings;
                     
+                    %%% Sorting anomalies based on spiciness
                     if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
                         anticyclones.spicy.isopycnal_separation(u) = i;
                         u = u + 1;
@@ -800,148 +811,6 @@ for tag_no = test_prof
             end
 
         end
-
-%         %%% Checking isopycnal separation
-%         isopycnal_separation_check = qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) < qc_ts(tag_no).ds.isopycnal_separation_anom_lim_lo(:,i);
-%         if sum(double(isopycnal_separation_check)) > iqr.min_density_levels
-%             
-%             %%% Extracting number of continuous anomalies
-%             y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres))' 0]==0))-1;
-%             y(y==0) = [];
-%             
-%             %%% Indices at which isopyncal separation check passes
-%             A = find(isopycnal_separation_check .* qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres);
-%     
-%             %%% Creating cells for continuous blocks of indices
-%             B = cell(1, length(y));
-%             for j = 1:length(y)
-%                 B{1,j} = NaN(y(j),1);
-%             end
-%             
-%             %%% Filling in cells with indices
-%             q = 1;
-%             while q <= length(B)
-%                 for j = 1:length(y)
-%                     for k = 1:length(B{1,j})
-%                         B{1,j}(k,1) = A(q);
-%                         q = q+1;
-%                     end
-%                 end
-%             end
-% 
-%             for j = 1:length(B)
-%                 
-%                 %%% Extracting pressure levels
-%                 pres_levels = qc_ts(tag_no).ds.pres(B{1,j},i);
-%                 
-%                 %%% Rejecting anomaly for various reasons
-%                 if length(B{1,j}) < iqr.min_density_levels
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Non-Continuous Isopycnals (IQR)";
-%                     continue
-%                 elseif max(pres_levels) < iqr.min_pres
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Too Shallow (IQR)";
-%                     continue
-%                 elseif min(pres_levels) > iqr.max_pres
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
-%                     continue
-%                 elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Too Short (IQR)";
-%                     continue
-%                 elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) < -50
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Anomaly Too Small (IQR)";
-%                 else
-%                     
-%                     qc_ts(tag_no).rejected(i) = 0;
-%                     qc_ts(tag_no).reason(i) = strings;
-%                     
-%                     if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
-%                         cyclones.spicy.isopycnal_separation(z) = i;
-%                         z = z + 1;
-%                     else
-%                         cyclones.minty.isopycnal_separation(zz) = i;
-%                         zz = zz + 1;
-%                     end
-%                     
-%                     break
-%                 end
-%                 
-%             end
-
-%         end
-        
-%         %%% Checking N^2
-%         N2_check = qc_ts(tag_no).ds.N2_anom(:,i) > qc_ts(tag_no).ds.N2_anom_lim_hi(:,i);
-%         if sum(double(N2_check)) > iqr.min_density_levels
-%             
-%             %%% Checking number of continuous anomalies
-%             y = diff(find([0 double(N2_check(qc_ts(tag_no).ds.pres(:,i) > iqr.min_pres))' 0]==0))-1;
-%             y(y==0) = [];
-%             
-%             %%% Indices at which isopyncal separation check passes
-%             A = find(N2_check .* qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres);
-%     
-%             %%% Creating cells for continuous blocks of indices
-%             B = cell(1, length(y));
-%             for j = 1:length(y)
-%                 B{1,j} = NaN(y(j),1);
-%             end
-%             
-%             %%% Filling in cells with indices
-%             q = 1;
-%             while q <= length(B)
-%                 for j = 1:length(y)
-%                     for k = 1:length(B{1,j})
-%                         B{1,j}(k,1) = A(q);
-%                         q = q+1;
-%                     end
-%                 end
-%             end
-%             
-%             for j = 1:length(B)
-%                 
-%                 %%% Extracting pressure levels
-%                 pres_levels = qc_ts(tag_no).ds.pres(B{1,j},i);
-%                 
-%                %%% Rejecting anomaly for various reasons
-%                 if length(B{1,j}) < iqr.min_density_levels
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Non-Continuous Isopycnals (IQR)";
-%                     continue
-%                 elseif max(pres_levels) < iqr.min_pres
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Too Shallow (IQR)";
-%                     continue
-%                 elseif min(pres_levels) > iqr.max_pres
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
-%                     continue
-%                 elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Too Short (IQR)";
-%                     continue
-%                 else
-%                  
-%                     qc_ts(tag_no).rejected(i) = 0;
-%                     qc_ts(tag_no).reason(i) = strings;
-%                     
-%                     if median(qc_ts(tag_no).ds.spice_anom(B{1,j},i)) > 0
-%                         cyclones.spicy.N2(z) = i;
-%                         z = z + 1;
-%                     else
-%                         cyclones.minty.N2(zz) = i;
-%                         zz = zz + 1;
-%                     end
-%                     
-%                     break
-%                 end
-%                 
-%             end
-%         end
         
         if isnan(qc_ts(tag_no).rejected(i))
             qc_ts(tag_no).rejected(i) = 1;
@@ -949,31 +818,20 @@ for tag_no = test_prof
         end
     end
     
-    qc_ts(tag_no).cyclones = cyclones;
+    %qc_ts(tag_no).cyclones = cyclones;
     qc_ts(tag_no).anticyclones = anticyclones;
     
-%     disp('Anticyclones, Spicy:');
-%     disp(qc_ts(tag_no).anticyclones.spicy.isopycnal_separation)
-%     
-%     disp('Anticyclones, Minty:');
-%     disp(qc_ts(tag_no).anticyclones.minty.isopycnal_separation)
-%     
-%     disp('Cyclones, Spicy:');
-%     disp(qc_ts(tag_no).cyclones.spicy.N2)
-%     
-%     disp('Cyclones, Minty:');
-%     disp(qc_ts(tag_no).cyclones.minty.N2)
 end
 
 clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cyclones anticyclones ...
-    y isopycnal_separation_check N2_check i A B q 
+    y isopycnal_separation_check N2_check i A B q
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Dynamic Height Anomaly Check %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%
+
 disp('------------------')
 disp('Starting DHA Check')
 disp('------------------')
@@ -1046,35 +904,12 @@ for tag_no = test_prof
     final = qc_ts(tag_no).anticyclones.minty.dha;
     final(ind) = [];
     qc_ts(tag_no).anticyclones.minty.final = final;
-%    
-%     %%% Cyclones, Spicy
-%     ind = find(qc_ts(tag_no).cyclones.spicy.dha < 20 | qc_ts(tag_no).cyclones.spicy.dha > length(qc_ts(tag_no).cast) - edge_limit);
-%     qc_ts(tag_no).rejected(qc_ts(tag_no).cyclones.spicy.dha(ind)) = 1;
-%     qc_ts(tag_no).reason(qc_ts(tag_no).cyclones.spicy.dha(ind)) = "Too Close to Edge";
-%     final = qc_ts(tag_no).cyclones.spicy.dha;
-%     final(ind) = [];
-%     qc_ts(tag_no).cyclones.spicy.final = final;
-%     
-%     %%% Cyclones, Minty
-%     ind = find(qc_ts(tag_no).cyclones.minty.dha < 20 | qc_ts(tag_no).cyclones.minty.dha > length(qc_ts(tag_no).cast) - edge_limit);
-%     qc_ts(tag_no).rejected(qc_ts(tag_no).cyclones.minty.dha(ind)) = 1;
-%     qc_ts(tag_no).reason(qc_ts(tag_no).cyclones.minty.dha(ind)) = "Too Close to Edge";
-%     final = qc_ts(tag_no).cyclones.minty.dha;
-%     final(ind) = [];
-%     qc_ts(tag_no).cyclones.minty.final = final;
-
-%     disp('Anticyclones, Spicy:')
-%     disp(qc_ts(tag_no).anticyclones.spicy.final);
-%     disp('Anticyclones, Minty:')
-%     disp(qc_ts(tag_no).anticyclones.minty.final);
-%     disp('Cyclones, Spicy:')
-%     disp(qc_ts(tag_no).cyclones.spicy.final);
-%     disp('Cyclones, Minty:')
-%     disp(qc_ts(tag_no).cyclones.minty.final);
     
     clear ind final
     
 end
+
+clear edge_limit
     
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -1107,32 +942,10 @@ for tag_no = test_prof
         scvs(u).spice = "Minty";
         u = u + 1;
     end
-%     
-%     for i = qc_ts(tag_no).cyclones.spicy.final
-%         scvs(u).tag = qc_ts(tag_no).tag;
-%         scvs(u).tag_no = tag_no;
-%         scvs(u).cast = i;
-%         scvs(u).time = qc_ts(tag_no).time(i,:);
-%         scvs(u).lat = qc_ts(tag_no).lat(i);
-%         scvs(u).lon = qc_ts(tag_no).lon(i);
-%         scvs(u).type = "Cyclonic";
-%         scvs(u).spice = "Spicy";
-%         u = u + 1;
-%     end
-%     
-%     for i = qc_ts(tag_no).cyclones.minty.final
-%         scvs(u).tag = qc_ts(tag_no).tag;
-%         scvs(u).tag_no = tag_no;
-%         scvs(u).cast = i;
-%         scvs(u).time = qc_ts(tag_no).time(i,:);
-%         scvs(u).lat = qc_ts(tag_no).lat(i);
-%         scvs(u).lon = qc_ts(tag_no).lon(i);
-%         scvs(u).type = "Cclonic";
-%         scvs(u).spice = "Minty";
-%         u = u + 1;
-%     end
+
 end
 
+%%% Noting region of detection
 for i = 1:length(scvs)
     if scvs(i).lon > -70 && scvs(i).lon < 0
         scvs(i).region = "Weddell";
@@ -1150,414 +963,187 @@ clear u i
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Plotting time series %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-isopycnals = 0.03;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Detected Eddy Anomalies Figure %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-for tag_no = test_prof
-    
-    figure('Renderer', 'painters', 'Position', [0 0 1000 950])
-    sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
-    
-    %%% Bathymetry Subplot
-    ax1 = subplot(4,1,1);
-    hold on
-    plot(datenum(qc_ts(tag_no).time), qc_ts(tag_no).bathymetry)
-    for i = qc_ts(tag_no).anticyclones.dha
-        xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-    end
-    hold off
-    xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-    datetick('x', 'mm/dd/yy', 'keepticks');
-    ylabel('Depth (m)','FontSize',12);
-    title('Bedrock Topography','FontSize', 12);
-    
+isopycnals = 0.01;
+
+for j = 1:length(scvs)
+
+    tag_no = scvs(j).tag_no;
+    i = scvs(j).cast;
+
+    fig = figure('Position', [0 0 1000 850]);
+    sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag) + ' - ' + string(scvs(j).region), 'FontSize', 18, 'FontWeight', 'bold')
+
     %%% Temperature Subplot
-    ax2 = subplot(4,1,2);
+    ax1 = subplot(4,3,1:2);
     hold on
     [~,IB] = unique(datenum(qc_ts(tag_no).time));
-    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).ps.temp(:,IB));
+    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).temp(:,IB));
     set(pp, 'EdgeColor', 'none');
-    [C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
+    [C,h] = contour(ax1, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.sigma0(:,IB), round(min(min(qc_ts(tag_no).ps.sigma0)):isopycnals:max(max(qc_ts(tag_no).ps.sigma0)), 2), 'k');
     clabel(C,h,'LabelSpacing',500);
-    for i = qc_ts(tag_no).anticyclones.dha
-        xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-    end
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
     hold off
-    cmap = cmocean('thermal');
-    colormap(ax2, cmap);
-    colorbar;
-    caxis([min(min(qc_ts(tag_no).ps.temp)) max(max(qc_ts(tag_no).ps.temp))])
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
+    cmap = cmocean('thermal'); colormap(ax1, cmap); colorbar;
+    clim([min(min(qc_ts(tag_no).temp)) max(max(qc_ts(tag_no).temp))])
+    set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
     xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
     datetick('x', 'mm/dd/yy', 'keepticks');
     ylabel('Pressure (dbar)', 'FontSize', 12);
     ylim([0 500])
+    xlim([datenum(qc_ts(tag_no).time(max(i-12, 1),:)) datenum(qc_ts(tag_no).time(min(i+12, length(qc_ts(tag_no).cast)),:))])
     title('Temperature', 'FontSize', 12);
-    
+
     %%% Salinity Subplot
-    ax3 = subplot(4,1,3);
+    ax2 = subplot(4,3,4:5);
     hold on
     [~,IB] = unique(datenum(qc_ts(tag_no).time));
-    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).ps.salt(:,IB));
+    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).salt(:,IB));
     set(pp, 'EdgeColor', 'none');
-    [C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
+    [C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.sigma0(:,IB), round(min(min(qc_ts(tag_no).ps.sigma0)):isopycnals:max(max(qc_ts(tag_no).ps.sigma0)), 2), 'k');
     clabel(C,h,'LabelSpacing',500);
-    for i = qc_ts(tag_no).anticyclones.dha
-        xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-    end
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
     hold off
-    cmap = cmocean('haline');
-    colormap(ax3, cmap);
-    colorbar;
-    caxis([min(min(qc_ts(tag_no).ps.salt)) max(max(qc_ts(tag_no).ps.salt))])
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
+    cmap = cmocean('haline'); colormap(ax2, cmap); colorbar;
+    clim([min(min(qc_ts(tag_no).salt)) max(max(qc_ts(tag_no).salt))])
+    set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
     xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
     datetick('x', 'mm/dd/yy', 'keepticks');
     ylabel('Pressure (dbar)', 'FontSize', 12);
     ylim([0 500])
     title('Salinity', 'FontSize', 12);
-    
-    %%% Isopycnal Separation Subplot
-    ax4 = subplot(4,1,4);
+    xlim([datenum(qc_ts(tag_no).time(max(i-12, 1),:)) datenum(qc_ts(tag_no).time(min(i+12, length(qc_ts(tag_no).cast)),:))])
+
+    %%% Map Subplot
+    load coastlines
+    subplot(4,3,[3 6])
+
+    lat = qc_ts(tag_no).lat(min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]));
+    lon = qc_ts(tag_no).lon(min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]));
+    axesm('lambertstd','MapParallels',[-75 -15],'MapLatLimit',[min(lat)-0.1 max(lat)+0.1],'MapLonLimit',[min(lon)-0.2 max(lon)+0.2], 'MLineLocation', 2, 'PLineLocation', 1, 'FontSize',13);
+    axis off; framem on; gridm on; mlabel on; plabel on;
     hold on
-    [~,IB] = unique(datenum(qc_ts(tag_no).time));
-    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),density_grid, qc_ts(tag_no).ds.isopycnal_separation(:,IB));
-    set(pp, 'EdgeColor', 'none');
-    for i = qc_ts(tag_no).anticyclones.dha
-        xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-    end
+    geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+    plotm(lat, lon, 'linestyle', '-', 'Color',[0.5 0.5 0.5], 'Marker','o', 'MarkerFaceColor',[0.5 0.5 0.5], 'MarkerSize', 5);
+    plotm(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i), '*c')
+    plotm(lat(1), lon(1), '*g');
+    plotm(lat(end), lon(end), '*r');
+
+    %%% Spice Profile
+    subplot(4,4,9);
+    hold on
+    plot(qc_ts(tag_no).ds.spice(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    plot(qc_ts(tag_no).ds.ref_spice(:,i),qc_ts(tag_no).ds.pres(:,i), 'k', 'DisplayName', 'Reference', 'LineWidth', 1.5)
+    set(gca, 'YDir', 'reverse');
+    xlabel('Spice');
     hold off
-    colorbar;
-    caxis([min(min(qc_ts(tag_no).ds.isopycnal_separation)) max(max(qc_ts(tag_no).ds.isopycnal_separation))])
-    set(gca, 'YDir','reverse');
-    set(gca, 'Layer','top');
-    xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-    datetick('x', 'mm/dd/yy', 'keepticks');
-    ylabel('Density (kg/m^3)', 'FontSize', 12);
-    ylim([27.2 27.9])
-    title('Isopycnal Separation', 'FontSize', 12);
-    
-    %linkaxes([ax1, ax2, ax3, ax4], 'x');
-    
-    p1 = get(ax1, 'Position');
-    p2 = get(ax2, 'Position');
-    p3 = get(ax3, 'Position');
-    p4 = get(ax4, 'Position');
-    
-    p2(3) = p1(3);
-    p3(3) = p1(3);
-    p4(3) = p1(3);
-    
-    set(ax2, 'Position', p2);
-    set(ax3, 'Position', p3);
-    set(ax4, 'Position', p4);
-    
-    
+    legend('Location', 'best')
+    ylim([0 600]);
+
+    %%% Isopycnal Separation Profile
+    subplot(4,4,10);
+    hold on
+    plot(qc_ts(tag_no).ds.isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    plot(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
+    set(gca, 'YDir', 'reverse');
+    xlabel('Isopycnal Separation');
+    hold off
+    legend('Location', 'best')
+    ylim([0 600]);
+
+    %%% N2 Profile
+    subplot(4,4,11);
+    hold on
+    plot(qc_ts(tag_no).ds.N2(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    plot(qc_ts(tag_no).ds.ref_N2(:,i), qc_ts(tag_no).ds.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
+    set(gca, 'YDir', 'reverse');
+    xlabel('N^2');
+    hold off
+    legend('Location', 'best')
+    ylim([0 600]);
+
+    %%% DHA Profile
+    subplot(4,4,12)
+    hold on
+    plot(qc_ts(tag_no).ps.dyn_height_anom(:,i), qc_ts(tag_no).ps.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    plot(qc_ts(tag_no).ps.ref_dyn_height_anom(:,i), qc_ts(tag_no).ps.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
+    set(gca, 'YDir', 'reverse');
+    xlabel('Dynamic Height Anomaly');
+    hold off
+    legend('Location', 'best')
+    ylim([0 600]);
+
+    %%% Spice Anomaly Profile
+    subplot(4,4,13);
+    hold on
+    plot(qc_ts(tag_no).ds.spice_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    xline(0, '--k', 'LineWidth', 1);
+    set(gca, 'YDir', 'reverse');
+    xlabel('Spice Anomaly');
+    hold off
+    ylim([0 600]);
+
+    %%% Isopycnal Separation Anomaly Profile
+    subplot(4,4,14);
+    hold on
+    plot(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    xline(0, '--k', 'LineWidth', 1);
+    set(gca, 'YDir', 'reverse');
+    xlabel('Isopycnal Separation Anomaly');
+    hold off
+    ylim([0 600]);
+
+    %%% N2 Anomaly Profile
+    subplot(4,4,15);
+    hold on
+    plot(qc_ts(tag_no).ds.N2_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
+    xline(0, '--k', 'LineWidth', 1);
+    set(gca, 'YDir', 'reverse');
+    xlabel('N^2 Anomaly');
+    hold off
+    ylim([0 600]);
+
+    %%% Dynamic Height Anomaly Profile
+    subplot(4,4,16);
+    hold on
+    plot(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i), qc_ts(tag_no).ps.pres(:,i),'b', 'DisplayName', 'Adjusted Profile','LineWidth',1.5)
+    xline(0, '--k', 'LineWidth', 1);
+    set(gca, 'YDir', 'reverse');
+    xlabel('Dynamic Height Anomaly Anomaly');
+    hold off
+    ylim([0 600]);
+
+    %saveas(fig, '/Users/jenkosty/Documents/Research/SCV_Project/Figures/6Oct2022/' + string(qc_ts(tag_no).tag) + '_' + string(i), 'png')
+    %linkaxes([ax3 ax4 ax5 ax6 ax7 ax8], 'y')
+
 end
 
-clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
+clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig h IB isopycnals p1 p2 p3 p4 p5 pp coastlat coastlon
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Plotting time series %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-isopycnals = 0.05;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Map of Detected Eddies %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-tag_no = 27;
+%%% Figure settings
+load coastlines
+figure('Position', [500 100 1000 850])
+axesm('stereo','Origin',[-90 0],'MapLatLimit',[-90 -57],'MLineLocation', 30, 'PLineLocation', 10, 'FontSize',10);
+axis off; framem on; gridm on; mlabel on; plabel on;
 
-figure('Renderer', 'painters', 'Position', [0 0 1000 950])
-sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag), 'FontSize', 18, 'FontWeight', 'bold')
+title('Detected Eddies', 'FontSize', 20)
 
-%%% Bathymetry Subplot
-ax1 = subplot(4,1,1);
-hold on
-plot(datenum(qc_ts(tag_no).time), qc_ts(tag_no).bathymetry)
-for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
+geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+scatterm(horzcat(scvs.lat), horzcat(scvs.lon), 20, 'ks', 'markerfacecolor','g')
+
+scv_label = string;
+for i = 1:length(scvs)
+    scv_label(i) = string(scvs(i).tag_no) + ', ' + string(scvs(i).cast);
 end
-for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
-end
-for i = qc_ts(tag_no).cyclones.spicy.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
-end
-for i = qc_ts(tag_no).cyclones.minty.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
-end
-hold off
-xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylabel('Depth (m)','FontSize',12);
-title('Bedrock Topography','FontSize', 12);
-
-%%% Temperature Subplot
-ax2 = subplot(4,1,2);
-hold on
-[~,IB] = unique(datenum(qc_ts(tag_no).time));
-pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).ps.temp(:,IB));
-set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
-clabel(C,h,'LabelSpacing',500);
-for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-end
-for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
-end
-for i = qc_ts(tag_no).cyclones.spicy.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
-end
-for i = qc_ts(tag_no).cyclones.minty.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
-end
-hold off
-cmap = cmocean('thermal');
-colormap(ax2, cmap);
-colorbar;
-caxis([min(min(qc_ts(tag_no).ps.temp)) max(max(qc_ts(tag_no).ps.temp))])
-set(gca, 'YDir','reverse');
-set(gca, 'Layer','top');
-xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylabel('Pressure (dbar)', 'FontSize', 12);
-ylim([0 500])
-title('Temperature', 'FontSize', 12);
-
-%%% Salinity Subplot
-ax3 = subplot(4,1,3);
-hold on
-[~,IB] = unique(datenum(qc_ts(tag_no).time));
-pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).ps.salt(:,IB));
-set(pp, 'EdgeColor', 'none');
-[C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.density(:,IB), round(min(min(qc_ts(tag_no).ps.density)):isopycnals:max(max(qc_ts(tag_no).ps.density)), 2), 'k');
-clabel(C,h,'LabelSpacing',500);
-for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-end
-for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
-end
-for i = qc_ts(tag_no).cyclones.spicy.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
-end
-for i = qc_ts(tag_no).cyclones.minty.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
-end
-hold off
-cmap = cmocean('haline');
-colormap(ax3, cmap);
-colorbar;
-caxis([min(min(qc_ts(tag_no).ps.salt)) max(max(qc_ts(tag_no).ps.salt))])
-set(gca, 'YDir','reverse');
-set(gca, 'Layer','top');
-xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylabel('Pressure (dbar)', 'FontSize', 12);
-ylim([0 500])
-title('Salinity', 'FontSize', 12);
-
-%%% Isopycnal Separation Subplot
-ax4 = subplot(4,1,4);
-hold on
-[~,IB] = unique(datenum(qc_ts(tag_no).time));
-pp = pcolor(unique(datenum(qc_ts(tag_no).time)),density_grid, qc_ts(tag_no).ds.isopycnal_separation(:,IB));
-set(pp, 'EdgeColor', 'none');
-for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r')
-end
-for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'b')
-end
-for i = qc_ts(tag_no).cyclones.spicy.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'r--');
-end
-for i = qc_ts(tag_no).cyclones.minty.N2
-    xline(datenum(qc_ts(tag_no).time(i,:)),'b--');
-end
-hold off
-colorbar;
-caxis([min(min(qc_ts(tag_no).ds.isopycnal_separation)) max(max(qc_ts(tag_no).ds.isopycnal_separation))])
-set(gca, 'YDir','reverse');
-set(gca, 'Layer','top');
-xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-datetick('x', 'mm/dd/yy', 'keepticks');
-ylabel('Pressure (dbar)', 'FontSize', 12);
-ylim([27.2 27.9])
-title('Isopycnal Separation', 'FontSize', 12);
-
-p1 = get(ax1, 'Position');
-p2 = get(ax2, 'Position');
-p3 = get(ax3, 'Position');
-p4 = get(ax4, 'Position');
-
-p2(3) = p1(3);
-p3(3) = p1(3);
-p4(3) = p1(3);
-
-set(ax2, 'Position', p2);
-set(ax3, 'Position', p3);
-set(ax4, 'Position', p4);
-
-
-clear ax1 ax2 ax3 ax4 ax5 C h cmap fig i h IB isopycnals p1 p2 p3 p4 p5 pp
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%
-
-isopycnals = 0.03;
-
-for j = 1:length(scvs)
- tag_no = scvs(j).tag_no;
- i = scvs(j).cast;
-        
-        fig = figure('Renderer', 'painters', 'Position', [0 0 1000 850]);
-        sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag) + ' - ' + string(scvs(j).region), 'FontSize', 18, 'FontWeight', 'bold')
-        
-        %%% Temperature Subplot
-        ax1 = subplot(4,4,1:4);
-        hold on
-        [~,IB] = unique(datenum(qc_ts(tag_no).time));
-        pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).temp(:,IB));
-        set(pp, 'EdgeColor', 'none');
-        [C,h] = contour(ax1, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.sigma0(:,IB), round(min(min(qc_ts(tag_no).ps.sigma0)):isopycnals:max(max(qc_ts(tag_no).ps.sigma0)), 2), 'k');
-        clabel(C,h,'LabelSpacing',500);
-        xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
-        hold off
-        cmap = cmocean('thermal');
-        colormap(ax1, cmap);
-        colorbar;
-        caxis([min(min(qc_ts(tag_no).temp)) max(max(qc_ts(tag_no).temp))])
-        set(gca, 'YDir','reverse');
-        set(gca, 'Layer','top');
-        xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-        datetick('x', 'mm/dd/yy', 'keepticks');
-        ylabel('Pressure (dbar)', 'FontSize', 12);
-        ylim([0 500])
-        xlim([datenum(qc_ts(tag_no).time(max(i-12, 1),:)) datenum(qc_ts(tag_no).time(min(i+12, length(qc_ts(tag_no).cast)),:))])
-        title('Temperature', 'FontSize', 12);
-        
-        %%% Salinity Subplot
-        ax2 = subplot(4,4,5:8);
-        hold on
-        [~,IB] = unique(datenum(qc_ts(tag_no).time));
-        pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).salt(:,IB));
-        set(pp, 'EdgeColor', 'none');
-        [C,h] = contour(ax2, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.sigma0(:,IB), round(min(min(qc_ts(tag_no).ps.sigma0)):isopycnals:max(max(qc_ts(tag_no).ps.sigma0)), 2), 'k');
-        clabel(C,h,'LabelSpacing',500);
-        xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
-        hold off
-        cmap = cmocean('haline');
-        colormap(ax2, cmap);
-        colorbar;
-        caxis([min(min(qc_ts(tag_no).salt)) max(max(qc_ts(tag_no).salt))])
-        set(gca, 'YDir','reverse');
-        set(gca, 'Layer','top');
-        xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
-        datetick('x', 'mm/dd/yy', 'keepticks');
-        ylabel('Pressure (dbar)', 'FontSize', 12);
-        ylim([0 500])
-        title('Salinity', 'FontSize', 12);
-        xlim([datenum(qc_ts(tag_no).time(max(i-12, 1),:)) datenum(qc_ts(tag_no).time(min(i+12, length(qc_ts(tag_no).cast)),:))])
-        
-        %linkaxes([ax1 ax2]);
-        
-        %%% Spice Profile
-        ax3 = subplot(4,4,9);
-        hold on
-        plot(qc_ts(tag_no).ds.spice(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        plot(qc_ts(tag_no).ds.ref_spice(:,i),qc_ts(tag_no).ds.pres(:,i), 'k', 'DisplayName', 'Reference', 'LineWidth', 1.5)
-        set(gca, 'YDir', 'reverse');
-        xlabel('Spice');
-        hold off
-        legend('Location', 'best')
-        ylim([0 500]);
-        
-        %%% Isopycnal Separation Profile
-        ax4 = subplot(4,4,10);
-        hold on
-        plot(qc_ts(tag_no).ds.isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        plot(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
-        set(gca, 'YDir', 'reverse');
-        xlabel('Isopycnal Separation');
-        hold off
-        legend('Location', 'best')
-        ylim([0 500]);
-        
-        %%% N2 Profile
-        ax5 = subplot(4,4,11);
-        hold on
-        plot(qc_ts(tag_no).ds.N2(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        plot(qc_ts(tag_no).ds.ref_N2(:,i), qc_ts(tag_no).ds.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
-        set(gca, 'YDir', 'reverse');
-        xlabel('N^2');
-        hold off
-        legend('Location', 'best')
-        ylim([0 500]);
-
-        %%% DHA Profile
-        subplot(4,4,12)
-        hold on
-        plot(qc_ts(tag_no).ps.dyn_height_anom(:,i), qc_ts(tag_no).ps.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        plot(qc_ts(tag_no).ps.ref_dyn_height_anom(:,i), qc_ts(tag_no).ps.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
-        set(gca, 'YDir', 'reverse');
-        xlabel('Dynamic Height Anomaly');
-        hold off
-        legend('Location', 'best')
-        ylim([0 500]);
-        
-        %%% Spice Anomaly Profile
-        ax6 = subplot(4,4,13);
-        hold on
-        plot(qc_ts(tag_no).ds.spice_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        xline(0, '--k', 'LineWidth', 1);
-        set(gca, 'YDir', 'reverse');
-        xlabel('Spice Anomaly');
-        hold off
-        ylim([0 500]);
-        
-        %%% Isopycnal Separation Anomaly Profile
-        ax7 = subplot(4,4,14);
-        hold on
-        plot(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        xline(0, '--k', 'LineWidth', 1);
-        set(gca, 'YDir', 'reverse');
-        xlabel('Isopycnal Separation Anomaly');
-        hold off
-        ylim([0 500]);
-        
-        %%% N2 Anomaly Profile
-        ax8 = subplot(4,4,15);
-        hold on
-        plot(qc_ts(tag_no).ds.N2_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
-        xline(0, '--k', 'LineWidth', 1);
-        set(gca, 'YDir', 'reverse');
-        xlabel('N^2 Anomaly');
-        hold off
-        ylim([0 500]);
-             
-        %%% Dynamic Height Anomaly Profile
-        ax9 = subplot(4,4,16);
-        hold on
-        plot(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i), qc_ts(tag_no).ps.pres(:,i),'b', 'DisplayName', 'Adjusted Profile','LineWidth',1.5)
-        xline(0, '--k', 'LineWidth', 1);
-        set(gca, 'YDir', 'reverse');
-        xlabel('Dynamic Height Anomaly Anomaly');
-        hold off
-        
-        ylim([0 500]);
-        
-        saveas(fig, '/Users/jenkosty/Documents/Research/SCV_Project/Figures/6Oct2022/' + string(qc_ts(tag_no).tag) + '_' + string(i), 'png')
-        %linkaxes([ax3 ax4 ax5 ax6 ax7 ax8], 'y')
-        
-end
-
-        clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig h IB isopycnals p1 p2 p3 p4 p5 pp
-        
+textm(horzcat(scvs.lat), horzcat(scvs.lon), scv_label)
