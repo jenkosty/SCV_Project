@@ -4,7 +4,7 @@ if choice == 1
     qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) = -qc_ts(tag_no).ds.isopycnal_separation_anom(:,i);
     height_thresh = 50;
 else
-    height_thresh = 100;
+    height_thresh = 25;
 end
 
 %// Goodness-of-fit thresholds
