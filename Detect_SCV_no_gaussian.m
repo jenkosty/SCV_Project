@@ -26,7 +26,7 @@ ref_settings.top_depth = 100; %%% depth at which there must still be at least x 
 % IQR CHECK SETTINGS
 iqr.min_pres = 100;
 iqr.max_pres = 500;
-iqr.min_thickness = 100;
+iqr.min_thickness = 150;
 iqr.min_density_levels = 3;
 iqr.no_profiles = 15;
 
@@ -246,8 +246,8 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%% Calculating Variables (Pressure Space) %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
-%test_prof = 1:length(qc_ts);
+%test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
+test_prof = 1:length(qc_ts);
 
 disp('------------------------------------')
 disp('Calculating Pressure Space Variables')
@@ -714,6 +714,7 @@ clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_iso
 %%%%%%%%%%%%%%%%%
 %%% IQR Check %%%
 %%%%%%%%%%%%%%%%%
+test_prof = 116;
 
 disp('------------------');
 disp('Starting IQR Check');
@@ -769,7 +770,7 @@ for tag_no = test_prof
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Shallow (IQR)";
                     continue
-                elseif min(pres_levels) > iqr.max_pres
+                elseif min(pres_levels) > 0.50 * max(qc_ts(tag_no).ds.pres(~isnan(qc_ts(tag_no).ds.pres(:,i)),i))
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
                     continue
@@ -777,21 +778,13 @@ for tag_no = test_prof
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Short (IQR)";
                     continue
-                elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) < 40
+                elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) < 25
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Anomaly Too Small (IQR)";
-                elseif min(pres_levels) > 0.50 * max(qc_ts(tag_no).ds.pres(~isnan(qc_ts(tag_no).ds.pres(:,i)),i))
-                    qc_ts(tag_no).rejected(i) = 1;
-                    qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
-                    continue
                 elseif kstest(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) == 0
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Shape";
                     continue
-%                 elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) == qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j}(end),i)
-%                     qc_ts(tag_no).rejected(i) = 1;
-%                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Shape";
-%                     continue
                 else
                     qc_ts(tag_no).rejected(i) = 0;
                     qc_ts(tag_no).reason(i) = strings;
@@ -826,6 +819,57 @@ end
 clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cyclones anticyclones ...
     y isopycnal_separation_check N2_check i A B q
 
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Isopycnal Shape Check %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for tag_no = test_prof
+    for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
+        %%% Extracting number of continuous anomalies
+        y = diff(find([0 double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) >= 10)' 0]==0))-1;
+        y(y==0) = [];
+
+        %%% Indices at which isopyncal separation check passes
+        A = find(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) >= 10);
+
+        %%% Creating cells for continuous blocks of indices
+        B = cell(1, length(y));
+        for j = 1:length(y)
+            B{1,j} = NaN(y(j),1);
+        end
+
+        %%% Filling in cells with indices
+        q = 1;
+        while q <= length(B)
+            for j = 1:length(y)
+                for k = 1:length(B{1,j})
+                    B{1,j}(k,1) = A(q);
+                    q = q+1;
+                end
+            end
+        end
+
+        for j = 1:length(B)
+            if length(B{1,j})<3
+                B{1,j} = [];
+            end
+        end
+         
+        B = B(~cellfun(@isempty,B));
+
+        for j = 1:length(B)
+            figure()
+            plot(qc_ts(tag_no).ds.pres(B{1,j},i), qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i))
+        end
+
+    end
+end
+
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -842,7 +886,7 @@ for tag_no = test_prof
     for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
         ind = find(islocalmax(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i)));
         for j = ind'
-            if qc_ts(tag_no).ps.pres(j,i) > 150 && qc_ts(tag_no).ps.dyn_height_anom_anom(j,i) > 0
+            if qc_ts(tag_no).ps.pres(j,i) > 100 && qc_ts(tag_no).ps.dyn_height_anom_anom(j,i) > 0
                 qc_ts(tag_no).rejected(i) = 0;
                 qc_ts(tag_no).reason(i) = strings;
                 qc_ts(tag_no).anticyclones.spicy.dha(u) = i;
@@ -861,7 +905,7 @@ for tag_no = test_prof
     for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
         ind = find(islocalmax(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i)));
         for j = ind'
-            if qc_ts(tag_no).ps.pres(j,i) > 150 && qc_ts(tag_no).ps.dyn_height_anom_anom(j,i) > 0
+            if qc_ts(tag_no).ps.pres(j,i) > 100 && qc_ts(tag_no).ps.dyn_height_anom_anom(j,i) > 0
                 qc_ts(tag_no).rejected(i) = 0;
                 qc_ts(tag_no).reason(i) = strings;
                 qc_ts(tag_no).anticyclones.minty.dha(u) = i;
@@ -968,7 +1012,7 @@ clear u i
 %%% Detected Eddy Anomalies Figure %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-isopycnals = 0.01;
+isopycnals = 0.02;
 
 for j = 1:length(scvs)
 
@@ -976,7 +1020,7 @@ for j = 1:length(scvs)
     i = scvs(j).cast;
 
     fig = figure('Position', [0 0 1000 850]);
-    sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag) + ' - ' + string(scvs(j).region), 'FontSize', 18, 'FontWeight', 'bold')
+    sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag) + ' , Cast ' + string(i) + ' - ' + string(scvs(j).region), 'FontSize', 18, 'FontWeight', 'bold')
 
     %%% Temperature Subplot
     ax1 = subplot(4,3,1:2);
