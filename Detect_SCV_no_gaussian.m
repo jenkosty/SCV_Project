@@ -247,7 +247,8 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
-test_prof = 1:length(qc_ts);
+test_prof = [115 197 62 81 92 100 199];
+%test_prof = 1:10;
 
 disp('------------------------------------')
 disp('Calculating Pressure Space Variables')
@@ -286,9 +287,6 @@ for tag_no = test_prof
     %%% Calculating potential density anomaly
     tmp_pres_space.sigma0 = gsw_sigma0(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative);
     
-    %%% Calculating neutral density
-    %[tmp_pres_space.gamma_n,~,~] = eos80_legacy_gamma_n(tmp_pres_space.salt, tmp_pres_space.temp, tmp_pres_space.pres, qc_ts(tag_no).lon, qc_ts(tag_no).lat);
-
     %%% Calculating N^2
     [N2, mid_pres] = gsw_Nsquared(tmp_pres_space.salt_absolute, tmp_pres_space.temp_conservative, tmp_pres_space.pres, qc_ts(tag_no).lat .* ones(size(tmp_pres_space.salt)));
     for i = 1:length(qc_ts(tag_no).cast)
@@ -360,32 +358,6 @@ for tag_no = test_prof
            
         end
         
-%         %%% Checking to see if gamma_n profile is ascending with depth
-%         if issorted(qc_ts(tag_no).ps.gamma_n(~isnan(qc_ts(tag_no).ps.gamma_n(:,i)),i), 'ascend') == 0
-%             
-%             %%% If not, sorting the profile
-%             gamma_n_orig = qc_ts(tag_no).ps.gamma_n(:,i);
-%             idx = ~isnan(gamma_n_orig);
-%             gamma_n_sort_1 = sort(gamma_n_orig, 'ascend');
-%             gamma_n_sort_1(isnan(gamma_n_sort_1)) = [];
-%             gamma_n_sort = gamma_n_orig;
-%             gamma_n_sort(idx) = gamma_n_sort_1;
-% 
-%             %%% Checking max difference between sorted and original density
-%             %%% profile. If the max difference it too large, the profile
-%             %%% will be rejected. If the max difference is small, the
-%             %%% profile will be replaced with the sorted version. 
-%          
-%             qc_ts(tag_no).ps.max_gamma_n_inversion(:,i) = max(abs(gamma_n_orig-gamma_n_sort));
-%        
-%             if max(abs(gamma_n_orig-gamma_n_sort)) > 0.1
-%                 qc_ts(tag_no).ps.gamma_n(:,i) = NaN;
-%                 qc_ts(tag_no).rejected(i) = "Density Inversion";
-%             else
-%                 qc_ts(tag_no).ps.gamma_n(:,i) = gamma_n_sort;
-%             end
-%             
-%         end
     end
 end
 
@@ -515,7 +487,6 @@ for tag_no = test_prof
 end
 
 clear mean_ind i
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -714,7 +685,6 @@ clear tmp_salt_anom_ds tmp_temp_anom_ds tmp_spice_anom_ds tmp_N2_anom_ds tmp_iso
 %%%%%%%%%%%%%%%%%
 %%% IQR Check %%%
 %%%%%%%%%%%%%%%%%
-test_prof = 116;
 
 disp('------------------');
 disp('Starting IQR Check');
@@ -819,58 +789,45 @@ end
 clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cyclones anticyclones ...
     y isopycnal_separation_check N2_check i A B q
 
-%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Isopycnal Shape Check %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Isopycnal Stability Check %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 for tag_no = test_prof
+    qc_ts(tag_no).anticyclones.spicy.flat_isopycnals = [];
+    qc_ts(tag_no).anticyclones.minty.flat_isopycnals = [];
+
+    u = 1;
     for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
-        %%% Extracting number of continuous anomalies
-        y = diff(find([0 double(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) >= 10)' 0]==0))-1;
-        y(y==0) = [];
-
-        %%% Indices at which isopyncal separation check passes
-        A = find(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) >= 10);
-
-        %%% Creating cells for continuous blocks of indices
-        B = cell(1, length(y));
-        for j = 1:length(y)
-            B{1,j} = NaN(y(j),1);
+        pres = qc_ts(tag_no).ds.pres(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        diff_pres = diff(pres, 2);
+        mean_diff_pres = mean(diff_pres,2);
+        if max(mean_diff_pres) < 1.5
+            qc_ts(tag_no).anticyclones.spicy.flat_isopycnals(u) = i;
+            u = u+1;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = "Failed Isopycnal Stability Test";
         end
+    end
 
-        %%% Filling in cells with indices
-        q = 1;
-        while q <= length(B)
-            for j = 1:length(y)
-                for k = 1:length(B{1,j})
-                    B{1,j}(k,1) = A(q);
-                    q = q+1;
-                end
-            end
+    u = 1;
+    for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
+        pres = qc_ts(tag_no).ds.pres(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        diff_pres = diff(pres, 2);
+        mean_diff_pres = mean(diff_pres,2);
+        if max(mean_diff_pres) < 1.5
+            qc_ts(tag_no).anticyclones.minty.flat_isopycnals(u) = i;
+            u = u + 1;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = "Failed Isopycnal Stability Test";
         end
-
-        for j = 1:length(B)
-            if length(B{1,j})<3
-                B{1,j} = [];
-            end
-        end
-         
-        B = B(~cellfun(@isempty,B));
-
-        for j = 1:length(B)
-            figure()
-            plot(qc_ts(tag_no).ds.pres(B{1,j},i), qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i))
-        end
-
     end
 end
 
-%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Dynamic Height Anomaly Check %%%
@@ -883,7 +840,7 @@ disp('------------------')
 for tag_no = test_prof 
     qc_ts(tag_no).anticyclones.spicy.dha = [];
     u = 1;
-    for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
+    for i = qc_ts(tag_no).anticyclones.spicy.flat_isopycnals
         ind = find(islocalmax(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i)));
         for j = ind'
             if qc_ts(tag_no).ps.pres(j,i) > 100 && qc_ts(tag_no).ps.dyn_height_anom_anom(j,i) > 0
@@ -902,7 +859,7 @@ for tag_no = test_prof
 
     qc_ts(tag_no).anticyclones.minty.dha = [];
     u = 1;
-    for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
+    for i = qc_ts(tag_no).anticyclones.minty.flat_isopycnals
         ind = find(islocalmax(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i)));
         for j = ind'
             if qc_ts(tag_no).ps.pres(j,i) > 100 && qc_ts(tag_no).ps.dyn_height_anom_anom(j,i) > 0
@@ -1019,31 +976,21 @@ for j = 1:length(scvs)
     tag_no = scvs(j).tag_no;
     i = scvs(j).cast;
 
-    fig = figure('Position', [0 0 1000 850]);
+    fig = figure('Position', [0 0 1100 950]);
     sgtitle('MEOP Seal ' + string(qc_ts(tag_no).tag) + ' , Cast ' + string(i) + ' - ' + string(scvs(j).region), 'FontSize', 18, 'FontWeight', 'bold')
 
-    %%% Temperature Subplot
-    ax1 = subplot(4,3,1:2);
-    hold on
-    [~,IB] = unique(datenum(qc_ts(tag_no).time));
-    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).temp(:,IB));
-    set(pp, 'EdgeColor', 'none');
-    [C,h] = contour(ax1, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.sigma0(:,IB), round(min(min(qc_ts(tag_no).ps.sigma0)):isopycnals:max(max(qc_ts(tag_no).ps.sigma0)), 2), 'k');
-    clabel(C,h,'LabelSpacing',500);
-    xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
-    hold off
-    cmap = cmocean('thermal'); colormap(ax1, cmap); colorbar;
-    clim([min(min(qc_ts(tag_no).temp)) max(max(qc_ts(tag_no).temp))])
-    set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
+    ind = min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+
+    %%% Bathymetry Subplot
+    ax1 = subplot(5,3,1:2);
+    plot(datenum(qc_ts(tag_no).time), qc_ts(tag_no).bathymetry, 'k-o', 'MarkerFaceColor', 'k', 'LineWidth', 2)
     xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
     datetick('x', 'mm/dd/yy', 'keepticks');
-    ylabel('Pressure (dbar)', 'FontSize', 12);
-    ylim([0 500])
-    xlim([datenum(qc_ts(tag_no).time(max(i-12, 1),:)) datenum(qc_ts(tag_no).time(min(i+12, length(qc_ts(tag_no).cast)),:))])
-    title('Temperature', 'FontSize', 12);
+    xlim([datenum(qc_ts(tag_no).time(ind(1),:)) datenum(qc_ts(tag_no).time(ind(end),:))])
+    ylabel('Bedrock Topography (m)')
 
     %%% Salinity Subplot
-    ax2 = subplot(4,3,4:5);
+    ax2 = subplot(5,3,4:5);
     hold on
     [~,IB] = unique(datenum(qc_ts(tag_no).time));
     pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).salt(:,IB));
@@ -1053,32 +1000,63 @@ for j = 1:length(scvs)
     xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
     hold off
     cmap = cmocean('haline'); colormap(ax2, cmap); colorbar;
-    clim([min(min(qc_ts(tag_no).salt)) max(max(qc_ts(tag_no).salt))])
+    clim([min(min(qc_ts(tag_no).salt(:,ind))) max(max(qc_ts(tag_no).salt(:,ind)))])
     set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
     xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
     datetick('x', 'mm/dd/yy', 'keepticks');
+    xlim([datenum(qc_ts(tag_no).time(ind(1),:)) datenum(qc_ts(tag_no).time(ind(end),:))])
     ylabel('Pressure (dbar)', 'FontSize', 12);
     ylim([0 500])
     title('Salinity', 'FontSize', 12);
-    xlim([datenum(qc_ts(tag_no).time(max(i-12, 1),:)) datenum(qc_ts(tag_no).time(min(i+12, length(qc_ts(tag_no).cast)),:))])
+
+    %%% Temperature Subplot
+    ax3 = subplot(5,3,7:8); 
+    hold on
+    [~,IB] = unique(datenum(qc_ts(tag_no).time));
+    pp = pcolor(unique(datenum(qc_ts(tag_no).time)),qc_ts(tag_no).ps.pres(:,1), qc_ts(tag_no).temp(:,IB));
+    set(pp, 'EdgeColor', 'none');
+    [C,h] = contour(ax3, unique(datenum(qc_ts(tag_no).time)), depth_grid, qc_ts(tag_no).ps.sigma0(:,IB), round(min(min(qc_ts(tag_no).ps.sigma0)):isopycnals:max(max(qc_ts(tag_no).ps.sigma0)), 2), 'k');
+    clabel(C,h,'LabelSpacing',500);
+    xline(datenum(qc_ts(tag_no).time(i,:)), 'r', 'LineWidth', 1.5)
+    hold off
+    cmap = cmocean('thermal'); colormap(ax3, cmap); colorbar;
+    clim([min(min(qc_ts(tag_no).temp(:,ind))) max(max(qc_ts(tag_no).temp(:,ind)))])
+    set(gca, 'YDir','reverse'); set(gca, 'Layer','top');
+    xticks(linspace(datenum(qc_ts(tag_no).time(1,:)), datenum(qc_ts(tag_no).time(end,:)), (datenum(qc_ts(tag_no).time(end,:)) - datenum(qc_ts(tag_no).time(1,:))) / 5))
+    datetick('x', 'mm/dd/yy', 'keepticks');
+    xlim([datenum(qc_ts(tag_no).time(ind(1),:)) datenum(qc_ts(tag_no).time(ind(end),:))])
+    ylabel('Pressure (dbar)', 'FontSize', 12);
+    ylim([0 500])
+    title('Temperature', 'FontSize', 12);
+
+    %%% Realigning Plots
+    p1 = get(ax1, 'Position');
+    p2 = get(ax2, 'Position');
+    p3 = get(ax3, 'Position');
+    p2(3) = p1(3);
+    p3(3) = p1(3);
+    set(ax2, 'Position', p2);
+    set(ax3, 'Position', p3);
+    clear p1 p2 p3
 
     %%% Map Subplot
     load coastlines
-    subplot(4,3,[3 6])
+    subplot(5,3,[3 6 9])
 
     lat = qc_ts(tag_no).lat(min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]));
     lon = qc_ts(tag_no).lon(min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]));
     axesm('lambertstd','MapParallels',[-75 -15],'MapLatLimit',[min(lat)-0.1 max(lat)+0.1],'MapLonLimit',[min(lon)-0.2 max(lon)+0.2], 'MLineLocation', 2, 'PLineLocation', 1, 'FontSize',13);
     axis off; framem on; gridm on; mlabel on; plabel on;
     hold on
-    geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
+    [row,col] = find(RTOPO.bedrock_topography == 0);
+    plotm(coastlat, coastlon)
     plotm(lat, lon, 'linestyle', '-', 'Color',[0.5 0.5 0.5], 'Marker','o', 'MarkerFaceColor',[0.5 0.5 0.5], 'MarkerSize', 5);
     plotm(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i), '*c')
     plotm(lat(1), lon(1), '*g');
     plotm(lat(end), lon(end), '*r');
 
     %%% Spice Profile
-    subplot(4,4,9);
+    subplot(5,4,13);
     hold on
     plot(qc_ts(tag_no).ds.spice(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     plot(qc_ts(tag_no).ds.ref_spice(:,i),qc_ts(tag_no).ds.pres(:,i), 'k', 'DisplayName', 'Reference', 'LineWidth', 1.5)
@@ -1086,10 +1064,10 @@ for j = 1:length(scvs)
     xlabel('Spice');
     hold off
     legend('Location', 'best')
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% Isopycnal Separation Profile
-    subplot(4,4,10);
+    subplot(5,4,14);
     hold on
     plot(qc_ts(tag_no).ds.isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     plot(qc_ts(tag_no).ds.ref_isopycnal_separation(:,i), qc_ts(tag_no).ds.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
@@ -1097,10 +1075,10 @@ for j = 1:length(scvs)
     xlabel('Isopycnal Separation');
     hold off
     legend('Location', 'best')
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% N2 Profile
-    subplot(4,4,11);
+    subplot(5,4,15);
     hold on
     plot(qc_ts(tag_no).ds.N2(:,i), qc_ts(tag_no).ds.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     plot(qc_ts(tag_no).ds.ref_N2(:,i), qc_ts(tag_no).ds.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
@@ -1108,10 +1086,10 @@ for j = 1:length(scvs)
     xlabel('N^2');
     hold off
     legend('Location', 'best')
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% DHA Profile
-    subplot(4,4,12)
+    subplot(5,4,16)
     hold on
     plot(qc_ts(tag_no).ps.dyn_height_anom(:,i), qc_ts(tag_no).ps.pres(:,i), 'r', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     plot(qc_ts(tag_no).ps.ref_dyn_height_anom(:,i), qc_ts(tag_no).ps.pres(:,i), 'k','DisplayName', 'Reference', 'LineWidth', 1.5)
@@ -1119,54 +1097,54 @@ for j = 1:length(scvs)
     xlabel('Dynamic Height Anomaly');
     hold off
     legend('Location', 'best')
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% Spice Anomaly Profile
-    subplot(4,4,13);
+    subplot(5,4,17);
     hold on
     plot(qc_ts(tag_no).ds.spice_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     xline(0, '--k', 'LineWidth', 1);
     set(gca, 'YDir', 'reverse');
     xlabel('Spice Anomaly');
     hold off
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% Isopycnal Separation Anomaly Profile
-    subplot(4,4,14);
+    subplot(5,4,18);
     hold on
     plot(qc_ts(tag_no).ds.isopycnal_separation_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     xline(0, '--k', 'LineWidth', 1);
     set(gca, 'YDir', 'reverse');
     xlabel('Isopycnal Separation Anomaly');
     hold off
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% N2 Anomaly Profile
-    subplot(4,4,15);
+    subplot(5,4,19);
     hold on
     plot(qc_ts(tag_no).ds.N2_anom(:,i), qc_ts(tag_no).ds.pres(:,i), 'b', 'DisplayName', 'Profile', 'LineWidth', 1.5)
     xline(0, '--k', 'LineWidth', 1);
     set(gca, 'YDir', 'reverse');
     xlabel('N^2 Anomaly');
     hold off
-    ylim([0 600]);
+    ylim([0 500]);
 
     %%% Dynamic Height Anomaly Profile
-    subplot(4,4,16);
+    subplot(5,4,20);
     hold on
     plot(qc_ts(tag_no).ps.dyn_height_anom_anom(:,i), qc_ts(tag_no).ps.pres(:,i),'b', 'DisplayName', 'Adjusted Profile','LineWidth',1.5)
     xline(0, '--k', 'LineWidth', 1);
     set(gca, 'YDir', 'reverse');
     xlabel('Dynamic Height Anomaly Anomaly');
     hold off
-    ylim([0 600]);
+    ylim([0 500]);
 
     %saveas(fig, '/Users/jenkosty/Documents/Research/SCV_Project/Figures/6Oct2022/' + string(qc_ts(tag_no).tag) + '_' + string(i), 'png')
     %linkaxes([ax3 ax4 ax5 ax6 ax7 ax8], 'y')
 
 end
 
-clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig h IB isopycnals p1 p2 p3 p4 p5 pp coastlat coastlon
+clear ax1 ax2 ax3 ax4 ax5 ax6 ax7 ax8 ax9 C h cmap fig h IB isopycnals p1 p2 p3 p4 p5 pp coastlat coastlon ind
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
