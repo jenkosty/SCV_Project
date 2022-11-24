@@ -24,11 +24,11 @@ ref_settings.top_depth = 100; %%% depth at which there must still be at least x 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IQR CHECK SETTINGS
-iqr.min_pres = 100;
-iqr.max_pres = 500;
-iqr.min_thickness = 150;
-iqr.min_density_levels = 3;
-iqr.no_profiles = 15;
+iqr_set.min_pres = 100;
+iqr_set.max_pres = 500;
+iqr_set.min_thickness = 150;
+iqr_set.min_density_levels = 3;
+iqr_set.no_profiles = 15;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -93,6 +93,7 @@ end
 clear time_qc pres_qc salt_qc temp_qc u SO_sealdata i x good_data
 
 %%% Extracting the max pressure that each profile reaches
+maxpres = NaN(1,length(SO_sealdata_qc));
 for i = 1:length(SO_sealdata_qc)
     maxpres(i) = max(SO_sealdata_qc(i).pres);
 end
@@ -151,7 +152,7 @@ for i = 1:length(taglist)
 	meop_ts(i).tag = taglist(i);
 
 	%%% Sort the profiles by date
-	[a,b] = sort(profdate(tagidx),'ascend');
+	[~,b] = sort(profdate(tagidx),'ascend');
 
 	%%% Go through all instances of the same tag and fill in the data
 	for j = 1:length(b)
@@ -187,7 +188,7 @@ for i = 1:length(meop_ts)
 	ind      = find(didx == 1); 
 	% Clear start of time-series
 	ts_start = []; ts_end = []; ts_cnt = 1;
-	if isempty(ind);
+	if isempty(ind)
 		% No good groups found, go to next MEOP time-series
 		continue
 	elseif length(ind)==1
@@ -195,11 +196,11 @@ for i = 1:length(meop_ts)
 		tmpidx{ts_cnt} = [ind:ind+1];
 	else
 		% Many groups exist, separate them
-		for j = 1:length(ind);
+		for j = 1:length(ind)
 			if isempty(ts_start)
 				ts_start = ind(j);
 			end
-			if j < length(ind) & ismember(ind(j)+1,ind);
+			if j < length(ind) & ismember(ind(j)+1,ind)
 				continue;
 			else
 				ts_end = ind(j)+1;
@@ -247,8 +248,8 @@ clear meop_data profdate tagidx taglist tagnum j i a b tmpdat tmpidx ts_cnt ...
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %test_prof = [63, 99, 199, 270, 318, 345, 418, 436, 82, 91, 116, 201];
-test_prof = [115 197 62 81 92 100 199];
-%test_prof = 1:10;
+%test_prof = [115 197 62 63 65 81 92 100 101 199 52 205];
+test_prof = 101:467;
 
 disp('------------------------------------')
 disp('Calculating Pressure Space Variables')
@@ -690,7 +691,7 @@ disp('------------------');
 disp('Starting IQR Check');
 disp('------------------');
 
-for tag_no = test_prof
+for tag_no =  test_prof
     u = 1;
     uu = 1;
     anticyclones.spicy.isopycnal_separation = [];
@@ -700,14 +701,14 @@ for tag_no = test_prof
 
         %%% Checking isopycnal separation
         isopycnal_separation_check = qc_ts(tag_no).ds.isopycnal_separation_anom(:,i) > qc_ts(tag_no).ds.isopycnal_separation_anom_lim_hi(:,i);
-        if sum(double(isopycnal_separation_check)) > iqr.min_density_levels
+        if sum(double(isopycnal_separation_check)) > iqr_set.min_density_levels
             
             %%% Extracting number of continuous anomalies
-            y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres))' 0]==0))-1;
+            y = diff(find([0 double(isopycnal_separation_check(qc_ts(tag_no).ds.pres(:,i) >= iqr_set.min_pres))' 0]==0))-1;
             y(y==0) = [];
             
             %%% Indices at which isopyncal separation check passes
-            A = find(isopycnal_separation_check .* qc_ts(tag_no).ds.pres(:,i) >= iqr.min_pres);
+            A = find(isopycnal_separation_check .* qc_ts(tag_no).ds.pres(:,i) >= iqr_set.min_pres);
     
             %%% Creating cells for continuous blocks of indices
             B = cell(1, length(y));
@@ -730,13 +731,19 @@ for tag_no = test_prof
                 
                 %%% Extracting pressure levels
                 pres_levels = qc_ts(tag_no).ds.pres(B{1,j},i);
+
+                %%% Extracting associated isopycnal separation anomaly values
+                isopycnal_sep_anom = qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i);
+
+                %%% Extracting associated isopycnal separation values
+                isopycnal_sep = qc_ts(tag_no).ds.isopycnal_separation(~isnan(qc_ts(tag_no).ds.isopycnal_separation(:,i)),i);
                 
                 %%% Rejecting anomaly for various reasons
-                if length(B{1,j}) < iqr.min_density_levels
+                if length(B{1,j}) < iqr_set.min_density_levels
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Non-Continuous Isopycnals (IQR)";
                     continue
-                elseif max(pres_levels) < iqr.min_pres
+                elseif max(pres_levels) < iqr_set.min_pres
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Shallow (IQR)";
                     continue
@@ -744,13 +751,22 @@ for tag_no = test_prof
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
                     continue
-                elseif max(pres_levels) - min(pres_levels(pres_levels > iqr.min_pres)) < iqr.min_thickness
+                elseif pres_levels(isopycnal_sep == max(isopycnal_sep_anom)) > 390
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = "Too Deep (IQR)";
+                    continue
+                elseif mean(isopycnal_sep(1:5)) > 5 * mean(isopycnal_sep(end-5:end))
+                    qc_ts(tag_no).rejected(i) = 1;
+                    qc_ts(tag_no).reason(i) = 'Isopycnal Separation Shape';
+                    continue
+                elseif max(pres_levels) - min(pres_levels(pres_levels > iqr_set.min_pres)) < iqr_set.min_thickness
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Too Short (IQR)";
                     continue
                 elseif max(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) < 25
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Anomaly Too Small (IQR)";
+                    continue
                 elseif kstest(qc_ts(tag_no).ds.isopycnal_separation_anom(B{1,j},i)) == 0
                     qc_ts(tag_no).rejected(i) = 1;
                     qc_ts(tag_no).reason(i) = "Isopycnal Separation Shape";
@@ -798,35 +814,48 @@ clear u uu z zz pres_levels N2_lt N2_gt isopycnal_sep_lt isopycnal_sep_gt i cycl
 for tag_no = test_prof
     qc_ts(tag_no).anticyclones.spicy.flat_isopycnals = [];
     qc_ts(tag_no).anticyclones.minty.flat_isopycnals = [];
+    qc_ts(tag_no).isopycnal_var = [];
+    qc_ts(tag_no).norm_std = [];
 
     u = 1;
     for i = qc_ts(tag_no).anticyclones.spicy.isopycnal_separation
-        pres = qc_ts(tag_no).ds.pres(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        diff_pres = diff(pres, 2);
-        mean_diff_pres = mean(diff_pres,2);
-        if max(mean_diff_pres) < 1.5
+        pres = qc_ts(tag_no).ds.pres(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]); 
+        isopycnal_separation = qc_ts(tag_no).ds.isopycnal_separation(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        diff_pres = diff(pres, 1, 2);
+        isopycnal_var = var(diff_pres(:) ./ mean(isopycnal_separation(:), 'omitnan'), 'omitnan');
+        if isopycnal_var < 400
             qc_ts(tag_no).anticyclones.spicy.flat_isopycnals(u) = i;
             u = u+1;
+            qc_ts(tag_no).isopycnal_var(i) = isopycnal_var;
         else
             qc_ts(tag_no).rejected(i) = 1;
             qc_ts(tag_no).reason(i) = "Failed Isopycnal Stability Test";
+            qc_ts(tag_no).isopycnal_var(i) = isopycnal_var;
         end
     end
 
     u = 1;
     for i = qc_ts(tag_no).anticyclones.minty.isopycnal_separation
         pres = qc_ts(tag_no).ds.pres(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
-        diff_pres = diff(pres, 2);
-        mean_diff_pres = mean(diff_pres,2);
-        if max(mean_diff_pres) < 1.5
+        diff_pres = diff(pres, 1, 2);
+        isopycnal_var = var(diff_pres(:) ./ mean(isopycnal_separation(:), 'omitnan')^2, 'omitnan');
+        if isopycnal_var < 400
             qc_ts(tag_no).anticyclones.minty.flat_isopycnals(u) = i;
             u = u + 1;
+            qc_ts(tag_no).isopycnal_var(i) = isopycnal_var;
         else
             qc_ts(tag_no).rejected(i) = 1;
             qc_ts(tag_no).reason(i) = "Failed Isopycnal Stability Test";
+            qc_ts(tag_no).isopycnal_var(i) = isopycnal_var;
         end
     end
 end
+
+clear diff_pres norm_std isopycnal_var u i j pres
+
+% Normalize by dzdp
+% Normalize by isopycnal separation squared
+% normalize by mean isopycnal 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -877,6 +906,55 @@ for tag_no = test_prof
     end
 end
 
+clear u i 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Bathymetry Check %%%
+%%%%%%%%%%%%%%%%%%%%%%%%
+
+disp('----------------');
+disp('Bathymetry Check');
+disp('----------------');
+
+for tag_no = test_prof
+    qc_ts(tag_no).anticyclones.spicy.bathymetry = [];
+    u = 1;
+    for i = qc_ts(tag_no).anticyclones.spicy.dha
+        bathymetry = qc_ts(tag_no).bathymetry(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        bathymetric_var = var(bathymetry / (mean(bathymetry, 'omitnan')^2), 'omitnan');
+        if  bathymetric_var < 10000
+            qc_ts(tag_no).rejected(i) = 0;
+            qc_ts(tag_no).reason(i) = strings;
+            qc_ts(tag_no).anticyclones.spicy.bathymetry(u) = i;
+            u = u + 1;
+            qc_ts(tag_no).bathymetric_var(i) = bathymetric_var;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = "Failed Bathymetry Check";
+        end
+    end
+end
+
+
+for tag_no = test_prof
+    qc_ts(tag_no).anticyclones.minty.bathymetry = [];
+    u = 1;
+    for i = qc_ts(tag_no).anticyclones.minty.dha
+        bathymetry = qc_ts(tag_no).bathymetry(:, [qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]);
+        bathymetric_var = var(bathymetry / (mean(bathymetry, 'omitnan')^2), 'omitnan');
+        if  bathymetric_var < 10000
+            qc_ts(tag_no).rejected(i) = 0;
+            qc_ts(tag_no).reason(i) = strings;
+            qc_ts(tag_no).anticyclones.minty.bathymetry(u) = i;
+            u = u + 1;
+            qc_ts(tag_no).bathymetric_var(i) = bathymetric_var;
+        else
+            qc_ts(tag_no).rejected(i) = 1;
+            qc_ts(tag_no).reason(i) = "Failed Bathymetry Check";
+        end
+    end
+end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Removing "SCVs" near time series edge %%%
@@ -891,18 +969,18 @@ edge_limit = 10;
 for tag_no = test_prof
     
     %%% Anticyclones, Spicy
-    ind = find(qc_ts(tag_no).anticyclones.spicy.dha < edge_limit | qc_ts(tag_no).anticyclones.spicy.dha > length(qc_ts(tag_no).cast) - edge_limit);
-    qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.spicy.dha(ind)) = 1;
-    qc_ts(tag_no).reason(qc_ts(tag_no).anticyclones.spicy.dha(ind)) = "Too Close to Edge";
-    final = qc_ts(tag_no).anticyclones.spicy.dha;
+    ind = find(qc_ts(tag_no).anticyclones.spicy.bathymetry < edge_limit | qc_ts(tag_no).anticyclones.spicy.bathymetry > length(qc_ts(tag_no).cast) - edge_limit);
+    qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.spicy.bathymetry(ind)) = 1;
+    qc_ts(tag_no).reason(qc_ts(tag_no).anticyclones.spicy.bathymetry(ind)) = "Too Close to Edge";
+    final = qc_ts(tag_no).anticyclones.spicy.bathymetry;
     final(ind) = [];
     qc_ts(tag_no).anticyclones.spicy.final = final;
         
     %%% Anticyclones, Minty
-    ind = find(qc_ts(tag_no).anticyclones.minty.dha < edge_limit | qc_ts(tag_no).anticyclones.minty.dha > length(qc_ts(tag_no).cast) - edge_limit);
-    qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.minty.dha(ind)) = 1;
-    qc_ts(tag_no).reason(qc_ts(tag_no).anticyclones.minty.dha(ind)) = "Too Close to Edge";
-    final = qc_ts(tag_no).anticyclones.minty.dha;
+    ind = find(qc_ts(tag_no).anticyclones.minty.bathymetry < edge_limit | qc_ts(tag_no).anticyclones.minty.bathymetry > length(qc_ts(tag_no).cast) - edge_limit);
+    qc_ts(tag_no).rejected(qc_ts(tag_no).anticyclones.minty.bathymetry(ind)) = 1;
+    qc_ts(tag_no).reason(qc_ts(tag_no).anticyclones.minty.bathymetry(ind)) = "Too Close to Edge";
+    final = qc_ts(tag_no).anticyclones.minty.bathymetry;
     final(ind) = [];
     qc_ts(tag_no).anticyclones.minty.final = final;
     
@@ -929,6 +1007,8 @@ for tag_no = test_prof
         scvs(u).lon = qc_ts(tag_no).lon(i);
         scvs(u).type = "Anticyclonic";
         scvs(u).spice = "Spicy";
+        scvs(u).isopycnal_variance = qc_ts(tag_no).isopycnal_var(i);
+        scvs(u).bathymetric_variance = qc_ts(tag_no).bathymetric_var(i);
         u = u + 1;
     end
     
@@ -941,6 +1021,8 @@ for tag_no = test_prof
         scvs(u).lon = qc_ts(tag_no).lon(i);
         scvs(u).type = "Anticyclonic";
         scvs(u).spice = "Minty";
+        scvs(u).isopycnal_variance = qc_ts(tag_no).isopycnal_var(i);
+        scvs(u).bathymetric_variance = qc_ts(tag_no).bathymetric_var(i);
         u = u + 1;
     end
 
@@ -969,9 +1051,9 @@ clear u i
 %%% Detected Eddy Anomalies Figure %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-isopycnals = 0.02;
+isopycnals = 0.01;
 
-for j = 1:length(scvs)
+for j = 11:20%length(scvs)
 
     tag_no = scvs(j).tag_no;
     i = scvs(j).cast;
@@ -1042,18 +1124,18 @@ for j = 1:length(scvs)
     %%% Map Subplot
     load coastlines
     subplot(5,3,[3 6 9])
-
     lat = qc_ts(tag_no).lat(min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]));
     lon = qc_ts(tag_no).lon(min([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]):max([qc_ts(tag_no).ref_ind{1,i} qc_ts(tag_no).ref_ind{2,i}]));
     axesm('lambertstd','MapParallels',[-75 -15],'MapLatLimit',[min(lat)-0.1 max(lat)+0.1],'MapLonLimit',[min(lon)-0.2 max(lon)+0.2], 'MLineLocation', 2, 'PLineLocation', 1, 'FontSize',13);
     axis off; framem on; gridm on; mlabel on; plabel on;
     hold on
-    [row,col] = find(RTOPO.bedrock_topography == 0);
-    plotm(coastlat, coastlon)
+    geoshow(coastlat, coastlon, 'DisplayType','polygon','FaceColor','white');
     plotm(lat, lon, 'linestyle', '-', 'Color',[0.5 0.5 0.5], 'Marker','o', 'MarkerFaceColor',[0.5 0.5 0.5], 'MarkerSize', 5);
     plotm(qc_ts(tag_no).lat(i), qc_ts(tag_no).lon(i), '*c')
     plotm(lat(1), lon(1), '*g');
     plotm(lat(end), lon(end), '*r');
+
+    clear lat lon
 
     %%% Spice Profile
     subplot(5,4,13);
@@ -1139,7 +1221,7 @@ for j = 1:length(scvs)
     hold off
     ylim([0 500]);
 
-    %saveas(fig, '/Users/jenkosty/Documents/Research/SCV_Project/Figures/6Oct2022/' + string(qc_ts(tag_no).tag) + '_' + string(i), 'png')
+    %saveas(fig, '/Users/jenkosty/Documents/Research/SCV_Project/Figures/16Nov2022/' + string(qc_ts(tag_no).tag) + '_' + string(i), 'png')
     %linkaxes([ax3 ax4 ax5 ax6 ax7 ax8], 'y')
 
 end
@@ -1168,4 +1250,6 @@ scv_label = string;
 for i = 1:length(scvs)
     scv_label(i) = string(scvs(i).tag_no) + ', ' + string(scvs(i).cast);
 end
-textm(horzcat(scvs.lat), horzcat(scvs.lon), scv_label)
+%textm(horzcat(scvs.lat), horzcat(scvs.lon), scv_label)
+
+clear scv_label
